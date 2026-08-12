@@ -4,10 +4,6 @@ const fs = require('fs');
 
 const TOKEN = process.env.TOKEN;
 
-// 💵 จำนวนเงินเริ่มต้นสำหรับผู้เล่นใหม่ (สามารถเปลี่ยนตัวเลขนี้ได้ตามต้องการ)
-const STARTING_BALANCE = 0;
-
-
 
 const client = new Client({
     intents: [
@@ -56,7 +52,7 @@ client.on('messageCreate', (message) => {
 
     // สร้างข้อมูลผู้ใช้เริ่มต้นหากเป็นผู้เล่นใหม่
     if (!db[userId]) {
-        db[userId] = { balance: STARTING_BALANCE, lastDaily: 0, lastHunt: 0, lastBossAttack: 0, inventory: { amulet: 0, sword: 0 } };
+        db[userId] = { balance: 0, lastDaily: 0, lastHunt: 0, lastBossAttack: 0, inventory: { amulet: 0, sword: 0 } };
     } else {
         if (!db[userId].inventory) {
             db[userId].inventory = { amulet: 0, sword: 0 };
