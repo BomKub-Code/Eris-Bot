@@ -127,18 +127,18 @@ client.on('messageCreate', (message) => {
             return message.reply(`⏳ ใจเย็นวัยรุ่น! คุณรับเงินเดือนไปแล้ว ต้องรออีก **${timeLeft} ชั่วโมง** ถึงจะรับได้ใหม่`);
         }
 
-        db[userId].balance += 500;
+        db[userId].balance += 1500;
         db[userId].lastDaily = timeNow;
         saveDB(db);
 
-        return message.reply(`🎉 รับเงินเดือนสำเร็จ! คุณได้รับ **500 ฟรุ้งฟริ้ง** ✨ (ยอดรวม: ${db[userId].balance})`);
+        return message.reply(`🎉 รับเงินเดือนสำเร็จ! คุณได้รับ **1,500 ฟรุ้งฟริ้ง** ✨ (ยอดรวม: ${db[userId].balance})`);
     }
 
     // ==========================================
     // ⚔️ ออกล่ามอนสเตอร์ (!hunt หรือ !ล่า)
     // ==========================================
     if (command === '!hunt' || command === '!ล่า') {
-        const cooldown = 60 * 1000;
+        const cooldown = 3 * 60 * 1000;
         const timeNow = Date.now();
         if (!db[userId].lastHunt) db[userId].lastHunt = 0;
 
@@ -151,7 +151,6 @@ client.on('messageCreate', (message) => {
         const hasSword = (db[userId].inventory?.sword || 0) > 0;
         const winChance = hasSword ? 0.65 : 0.50;
         const isWin = Math.random() < winChance;
-        const amount = Math.floor(Math.random() * (1000 - 100 + 1)) + 100;
 
         const winScenarios = [
             "ไปตีสไลม์หน้าเมืองแล้วบังเอิญเจอก้อนทองคำแท่งดรอป", "ช่วยแมวของหัวหน้าหมู่บ้านลงจากต้นไม้ ได้รับรางวัลอย่างงาม",
@@ -193,10 +192,12 @@ client.on('messageCreate', (message) => {
         let resultMessage = "";
 
         if (isWin) {
+            const amount = Math.floor(Math.random() * (1200 - 300 + 1)) + 300;
             const scenario = winScenarios[Math.floor(Math.random() * winScenarios.length)];
             db[userId].balance += amount;
             resultMessage = `⚔️ **ออกล่าสำเร็จ!** ${hasSword ? '*(พลังแห่งดาบอัศวินช่วยเพิ่มโอกาสชนะ! ⚔️)*\n>' : '\n>'} ${scenario}\n🎉 ได้รับเงิน **${amount} ฟรุ้งฟริ้ง!** (ยอดรวม: ${db[userId].balance})`;
         } else {
+            const amount = Math.floor(Math.random() * (600 - 100 + 1)) + 100;
             const scenario = loseScenarios[Math.floor(Math.random() * loseScenarios.length)];
             db[userId].balance = Math.max(0, db[userId].balance - amount);
             resultMessage = `💀 **ภารกิจล้มเหลว!**\n> ${scenario}\n💸 เสียเงินไป **${amount} ฟรุ้งฟริ้ง!** (ยอดคงเหลือ: ${db[userId].balance})`;
