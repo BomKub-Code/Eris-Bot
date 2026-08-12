@@ -216,7 +216,7 @@ client.on('messageCreate', (message) => {
     // 🎲 เสี่ยงโชค/มินิเกม (!cf และ !slots)
     // ==========================================
     if (command === '!cf' || command === '!coinflip') {
-        const choice = args[0]?.toLowerCase(); 
+        const choice = args[0]?.toLowerCase();
         const bet = parseInt(args[1]);
 
         if (!choice || (choice !== 'หัว' && choice !== 'ก้อย')) return message.reply('❌ วิธีเล่น: พิมพ์ `!cf หัว <เงิน>` หรือ `!cf ก้อย <เงิน>`');
@@ -226,11 +226,11 @@ client.on('messageCreate', (message) => {
         const result = Math.random() < 0.5 ? 'หัว' : 'ก้อย';
 
         if (choice === result) {
-            db[userId].balance += bet; 
+            db[userId].balance += bet;
             saveDB(db);
             return message.reply(`🪙 เหรียญออก **[ ${result} ]** !! 🎉 คุณทายถูก! ได้รับเงินเพิ่ม **${bet} ฟรุ้งฟริ้ง** (ยอดรวม: ${db[userId].balance})`);
         } else {
-            db[userId].balance -= bet; 
+            db[userId].balance -= bet;
             saveDB(db);
             return message.reply(`🪙 เหรียญออก **[ ${result} ]** !! 😭 คุณทายผิด! เสียเงินไป **${bet} ฟรุ้งฟริ้ง** (ยอดคงเหลือ: ${db[userId].balance})`);
         }
@@ -306,7 +306,7 @@ client.on('messageCreate', (message) => {
         if (targetAmulet > 0) {
             // ทำลายยันต์ของเป้าหมาย 1 ชิ้น และผู้ปล้นทำไม่สำเร็จ
             db[target.id].inventory.amulet -= 1;
-            
+
             // ผู้ปล้นโดนยันต์สะท้อน เสียค่าปรับเล็กน้อย 50 ฟรุ้งฟริ้ง
             const penalty = 50;
             db[userId].balance -= penalty;
@@ -512,7 +512,7 @@ client.on('messageCreate', (message) => {
             for (const [attackerId, attackerDmg] of Object.entries(boss.damages)) {
                 const sharePercent = attackerDmg / totalDmg;
                 const rewardAmount = Math.floor(sharePercent * boss.reward);
-                
+
                 if (db[attackerId]) {
                     db[attackerId].balance += rewardAmount;
                 }
