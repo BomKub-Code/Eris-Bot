@@ -925,4 +925,12 @@ client.on('messageCreate', (message) => {
     }
 });
 
-client.login(TOKEN);
+if (!TOKEN) {
+    console.error("❌ ERROR: ไม่พบ TOKEN ใน environment variables (process.env.TOKEN)");
+    console.error("👉 กรุณาตั้งค่า TOKEN ใน Dashboard ของ Discloud (หรือในไฟล์ .env)");
+    process.exit(1);
+}
+
+client.login(TOKEN).catch(err => {
+    console.error("❌ ไม่สามารถเข้าสู่ระบบ Discord ได้:", err.message);
+});
