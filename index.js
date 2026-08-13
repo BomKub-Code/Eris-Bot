@@ -33,8 +33,114 @@ function loadDB() {
     return data;
 }
 
-function saveDB(data) {
-    fs.writeFileSync(dbPath, JSON.stringify(data, null, 4));
+const WEAPONS_CONFIG = {
+    sword: {
+        id: 'sword',
+        name: '⚔️ ดาบอัศวิน (`sword` หรือ `ดาบ`)',
+        displayName: '⚔️ ดาบอัศวิน',
+        aliases: ['sword', 'ดาบ', 'ดาบอัศวิน'],
+        price: 3000,
+        desc: '• เพิ่มโอกาสชนะออกล่าเป็น **65%**\n• ดาเมจบอส **+50 DMG**\n• ตีบวก: เงินออกล่า **+150**/ระดับ & ดาเมจบอส **+25 DMG**/ระดับ'
+    },
+    shield: {
+        id: 'shield',
+        name: '🛡️ โล่ศักดิ์สิทธิ์ (`shield` หรือ `โล่`)',
+        displayName: '🛡️ โล่ศักดิ์สิทธิ์',
+        aliases: ['shield', 'โล่', 'โล่ศักดิ์สิทธิ์'],
+        price: 3500,
+        desc: '• ลดเงินที่เสียจากการล่าล้มเหลว **30%**\n• มีโอกาสสะท้อนการปล้น (**25%**)\n• ตีบวก: ลดเงินที่เสีย **+5%**/ระดับ & สะท้อนการปล้น **+5%**/ระดับ'
+    },
+    bow: {
+        id: 'bow',
+        name: '🏹 ธนูเอลฟ์ (`bow` หรือ `ธนู`)',
+        displayName: '🏹 ธนูเอลฟ์',
+        aliases: ['bow', 'ธนู', 'ธนูเอลฟ์'],
+        price: 4000,
+        desc: '• โอกาส Critical ตีบอสเพิ่มเป็น **35%** (ปกติ 20%)\n• ตีบวก: เพิ่มความแรง Critical ตีบอส **+0.1x**/ระดับ (สูงสุด 2.5x)'
+    },
+    dagger: {
+        id: 'dagger',
+        name: '🗡️ มีดสั้นนักฆ่า (`dagger` หรือ `มีด`)',
+        displayName: '🗡️ มีดสั้นนักฆ่า',
+        aliases: ['dagger', 'มีด', 'มีดสั้น'],
+        price: 4500,
+        desc: '• เพิ่มโอกาสปล้น (`!rob`) สำเร็จเป็น **70%** (ปกติ 60%)\n• ตีบวก: เพิ่มเปอร์เซ็นต์เงินที่ปล้นได้ **+2%**/ระดับ'
+    },
+    staff: {
+        id: 'staff',
+        name: '🧙‍♂️ คทาเวทมนตร์ (`staff` หรือ `คทา`)',
+        displayName: '🧙‍♂️ คทาเวทมนตร์',
+        aliases: ['staff', 'คทา', 'คทาเวทมนตร์'],
+        price: 5000,
+        desc: '• พลังระเบิดบอสมหาศาล **+120 DMG**\n• ตีบวก: ดาเมจตีบอสเพิ่มขึ้น **+45 DMG**/ระดับ (สายระเบิดบอสแรงสุด!)'
+    }
+};
+
+function ensureUserData(db, id) {
+    if (!db[id]) {
+        db[id] = {
+            balance: 0,
+            bank: 0,
+            lastDaily: 0,
+            lastHunt: 0,
+            lastBossAttack: 0,
+            lastRob: 0,
+            inventory: {
+                amulet: 0,
+                potion: 0,
+                ring: 0,
+                weapons: {
+                    sword: 0,
+                    shield: 0,
+                    bow: 0,
+                    dagger: 0,
+                    staff: 0
+                }
+            }
+        };
+    } else {
+        if (db[id].bank === undefined) db[id].bank = 0;
+        if (db[id].lastBossAttack === undefined) db[id].lastBossAttack = 0;
+        if (db[id].lastRob === undefined) db[id].lastRob = 0;
+        if (!db[id].inventory) db[id].inventory = {};
+        if (db[id].inventory.amulet === undefined) db[id].inventory.amulet = 0;
+        if (db[id].inventory.potion === undefined) db[id].inventory.potion = 0;
+        if (db[id].inventory.ring === undefined) db[id].inventory.ring = 0;
+
+        if (!db[id].inventory.weapons) {
+            db[id].inventory.weapons = {
+                sword: 0,
+                shield: 0,
+                bow: 0,
+                dagger: 0,
+                staff: 0
+            };
+            if (db[id].inventory.sword && db[id].inventory.sword > 0) {
+                const oldLvl = (db[id].inventory.swordLevel || 0) + 1;
+                db[id].inventory.weapons.sword = oldLvl;
+            }
+        }
+    }
+}
+
+function getWeaponLevel(db, id, type) {
+    ensureUserData(db, id);
+    const val = db[id].inventory?.weapons?.[type] || 0;
+    return val > 0 ? val - 1 : -1;
+}
+
+function hasWeapon(db, id, type) {
+    return getWeaponLevel(db, id, type) >= 0;
+}
+
+function findWeapon(query) {
+    if (!query) return null;
+    const q = query.toLowerCase();
+    for (const key of Object.keys(WEAPONS_CONFIG)) {
+        const w = WEAPONS_CONFIG[key];
+        if (w.aliases.includes(q)) return w;
+    }
+    return null;
 }
 
 client.once('ready', () => {
@@ -44,6 +150,9 @@ client.once('ready', () => {
 client.on('messageCreate', (message) => {
     if (message.author.bot) return;
 
+    // 🛑 ถ้าข้อความไม่ได้ขึ้นต้นด้วย ! ให้บอทเมินเฉยไปเลย ไม่ต้องกิน RAM!
+    if (!message.content.startsWith('!')) return;
+
     const args = message.content.trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
@@ -51,16 +160,7 @@ client.on('messageCreate', (message) => {
     const userId = message.author.id;
 
     // สร้างข้อมูลผู้ใช้เริ่มต้นหากเป็นผู้เล่นใหม่
-    if (!db[userId]) {
-        db[userId] = { balance: 0, lastDaily: 0, lastHunt: 0, lastBossAttack: 0, inventory: { amulet: 0, sword: 0 } };
-    } else {
-        if (!db[userId].inventory) {
-            db[userId].inventory = { amulet: 0, sword: 0 };
-        }
-        if (db[userId].lastBossAttack === undefined) {
-            db[userId].lastBossAttack = 0;
-        }
-    }
+    ensureUserData(db, userId);
 
     // ==========================================
     // 📊 ระบบสุ่มสเตตัส (!status หรือ !สเตตัส)
@@ -110,10 +210,16 @@ client.on('messageCreate', (message) => {
     // ==========================================
     // 🪙 เช็คเงิน และ เงินเดือน (!bal, !money, !daily)
     // ==========================================
-    if (command === '!bal' || command === '!money') {
+    if (command === '!bal' || command === '!money' || command === '!เงิน') {
+        const cash = db[userId].balance || 0;
+        const bank = db[userId].bank || 0;
+        const total = cash + bank;
+
         const balEmbed = new EmbedBuilder()
             .setColor('#00FF00')
-            .setDescription(`💰 **${message.author.username}** ตอนนี้คุณมีเงิน **${db[userId].balance}** ฟรุ้งฟริ้ง`);
+            .setTitle(`💳 บัญชีทรัพย์สินของ ${message.author.username}`)
+            .setDescription(`💵 **เงินสดติดตัว:** ${cash.toLocaleString()} ฟรุ้งฟริ้ง\n🏦 **เงินในธนาคาร:** ${bank.toLocaleString()} ฟรุ้งฟริ้ง\n✨ **ทรัพย์สินรวม:** ${total.toLocaleString()} ฟรุ้งฟริ้ง`)
+            .setFooter({ text: 'ใช้คำสั่ง !ฝาก หรือ !ถอน เพื่อจัดการเงินในธนาคาร' });
         return message.reply({ embeds: [balEmbed] });
     }
 
@@ -127,11 +233,166 @@ client.on('messageCreate', (message) => {
             return message.reply(`⏳ ใจเย็นวัยรุ่น! คุณรับเงินเดือนไปแล้ว ต้องรออีก **${timeLeft} ชั่วโมง** ถึงจะรับได้ใหม่`);
         }
 
-        db[userId].balance += 1500;
+        const baseDaily = 1500;
+        const hasRing = (db[userId].inventory?.ring || 0) > 0;
+        const bonus = hasRing ? Math.floor(baseDaily * 0.2) : 0;
+        const totalDaily = baseDaily + bonus;
+
+        db[userId].balance += totalDaily;
         db[userId].lastDaily = timeNow;
         saveDB(db);
 
-        return message.reply(`🎉 รับเงินเดือนสำเร็จ! คุณได้รับ **1,500 ฟรุ้งฟริ้ง** ✨ (ยอดรวม: ${db[userId].balance})`);
+        const ringMsg = hasRing ? ` *(+${bonus} จากโบนัสแหวนโชคลาภ 💍)*` : '';
+        return message.reply(`🎉 รับเงินเดือนสำเร็จ! คุณได้รับ **${totalDaily.toLocaleString()} ฟรุ้งฟริ้ง** ✨${ringMsg} (เงินสดคงเหลือ: ${db[userId].balance.toLocaleString()})`);
+    }
+
+    // ==========================================
+    // 🏦 ระบบธนาคาร (!dep, !with, !bank)
+    // ==========================================
+    if (command === '!dep' || command === '!deposit' || command === '!ฝาก') {
+        const arg = args[0]?.toLowerCase();
+        if (!arg) return message.reply('❌ วิธีใช้: `!ฝาก <จำนวนเงิน>` หรือ `!ฝาก all`');
+
+        let amount = 0;
+        if (arg === 'all' || arg === 'หมด') {
+            amount = db[userId].balance;
+        } else {
+            amount = parseInt(arg);
+        }
+
+        if (isNaN(amount) || amount <= 0) return message.reply('❌ กรุณาระบุจำนวนเงินที่ถูกต้อง');
+        if (db[userId].balance < amount) return message.reply('💸 คุณมีเงินสดติดตัวไม่พอฝาก!');
+
+        db[userId].balance -= amount;
+        db[userId].bank = (db[userId].bank || 0) + amount;
+        saveDB(db);
+
+        return message.reply(`🏦 **ฝากเงินสำเร็จ!** คุณได้ฝากเงิน **${amount.toLocaleString()} ฟรุ้งฟริ้ง** เข้าธนาคาร\n> 💵 เงินสดคงเหลือ: **${db[userId].balance.toLocaleString()}** | 🏦 เงินในธนาคาร: **${db[userId].bank.toLocaleString()}**`);
+    }
+
+    if (command === '!with' || command === '!withdraw' || command === '!ถอน') {
+        const arg = args[0]?.toLowerCase();
+        if (!arg) return message.reply('❌ วิธีใช้: `!ถอน <จำนวนเงิน>` หรือ `!ถอน all`');
+
+        let amount = 0;
+        if (arg === 'all' || arg === 'หมด') {
+            amount = db[userId].bank || 0;
+        } else {
+            amount = parseInt(arg);
+        }
+
+        if (isNaN(amount) || amount <= 0) return message.reply('❌ กรุณาระบุจำนวนเงินที่ถูกต้อง');
+        if ((db[userId].bank || 0) < amount) return message.reply('💸 เงินในธนาคารของคุณไม่พอถอน!');
+
+        db[userId].bank -= amount;
+        db[userId].balance += amount;
+        saveDB(db);
+
+        return message.reply(`🏧 **ถอนเงินสำเร็จ!** คุณได้ถอนเงิน **${amount.toLocaleString()} ฟรุ้งฟริ้ง** จากธนาคาร\n> 💵 เงินสดคงเหลือ: **${db[userId].balance.toLocaleString()}** | 🏦 เงินในธนาคาร: **${db[userId].bank.toLocaleString()}**`);
+    }
+
+    if (command === '!bank' || command === '!ธนาคาร') {
+        const bankEmbed = new EmbedBuilder()
+            .setColor('#34495E')
+            .setTitle(`🏦 ธนาคารสมาคมนักผจญภัย - บัญชีของ ${message.author.username}`)
+            .setDescription(`🏦 **เงินฝากในธนาคาร:** ${(db[userId].bank || 0).toLocaleString()} ฟรุ้งฟริ้ง\n💵 **เงินสดติดตัว:** ${db[userId].balance.toLocaleString()} ฟรุ้งฟริ้ง\n\n🛡️ *เงินในธนาคารจะปลอดภัย 100% จากการโดนปล้น (!rob)*`)
+            .setFooter({ text: 'พิมพ์ !ฝาก <จำนวน> เพื่อฝากเงิน | !ถอน <จำนวน> เพื่อถอนเงิน' });
+        return message.reply({ embeds: [bankEmbed] });
+    }
+
+    // ==========================================
+    // 🔨 ระบบตีบวกอุปกรณ์ (!upgrade หรือ !ตีบวก)
+    // ==========================================
+    if (command === '!upgrade' || command === '!ตีบวก') {
+        const weaponArg = args[0]?.toLowerCase();
+
+        // หากผู้ใช้พิมพ์ !ตีบวก โดยไม่ได้ระบุอาวุธหรือระบุชื่อไม่ถูก
+        const targetWeapon = findWeapon(weaponArg);
+
+        if (!targetWeapon) {
+            ensureUserData(db, userId);
+            let ownedList = "";
+            for (const key of Object.keys(WEAPONS_CONFIG)) {
+                const w = WEAPONS_CONFIG[key];
+                const lvl = getWeaponLevel(db, userId, key);
+                if (lvl >= 0) {
+                    ownedList += `• ${w.displayName}: **+${lvl}**\n`;
+                }
+            }
+            if (!ownedList) ownedList = "❌ คุณยังไม่มีอาวุธใดๆ เลย! เลือกซื้อได้จากร้านค้า (`!shop`)\n";
+
+            const infoEmbed = new EmbedBuilder()
+                .setColor('#F1C40F')
+                .setTitle(`🔨 โรงตีเหล็กสมาคมนักผจญภัย (${message.author.username})`)
+                .setDescription(`**อาวุธที่คุณครอบครอง:**\n${ownedList}\n💡 **วิธีตีบวก:** พิมพ์ \`!ตีบวก <ชื่ออาวุธ>\`\n*(เช่น \`!ตีบวก sword\`, \`!ตีบวก shield\`, \`!ตีบวก bow\`, \`!ตีบวก dagger\`, \`!ตีบวก staff\`)*`)
+                .setFooter({ text: 'ระดับตีบวกสูงสุดคือ +10' });
+
+            return message.reply({ embeds: [infoEmbed] });
+        }
+
+        if (!hasWeapon(db, userId, targetWeapon.id)) {
+            return message.reply(`❌ คุณยังไม่มี **${targetWeapon.displayName}**! สั่งซื้อได้ที่ร้านค้า (\`!buy ${targetWeapon.id}\`)`);
+        }
+
+        const currentLevel = getWeaponLevel(db, userId, targetWeapon.id);
+        if (currentLevel >= 10) return message.reply(`👑 **${targetWeapon.displayName} ของคุณอยู่ที่ระดับสูงสุด (+10) แล้ว!** ไม่สามารถตีบวกเพิ่มได้อีก`);
+
+        const upgradeCosts = [1000, 2000, 3500, 5000, 8000, 12000, 18000, 25000, 35000, 50000];
+        const successChances = [0.90, 0.80, 0.70, 0.60, 0.50, 0.40, 0.30, 0.25, 0.20, 0.15];
+
+        const cost = upgradeCosts[currentLevel];
+        const chance = successChances[currentLevel];
+
+        if (db[userId].balance < cost) return message.reply(`💸 เงินสดติดตัวไม่พอ! ค่าตีบวก ${targetWeapon.displayName} เป็น +${currentLevel + 1} ต้องใช้ **${cost.toLocaleString()} ฟรุ้งฟริ้ง**`);
+
+        db[userId].balance -= cost;
+
+        const isSuccess = Math.random() < chance;
+        let resultMsg = "";
+
+        if (isSuccess) {
+            db[userId].inventory.weapons[targetWeapon.id] += 1;
+            saveDB(db);
+            resultMsg = `✨ **สำเร็จ!!** อัปเกรดอาวุธเป็น **${targetWeapon.displayName} +${currentLevel + 1}** เรียบร้อยแล้ว!`;
+        } else {
+            if (currentLevel >= 4) {
+                db[userId].inventory.weapons[targetWeapon.id] -= 1;
+                saveDB(db);
+                resultMsg = `💥 **ล้มเหลว!** การตีบวกผิดพลาด... ระดับลดลงเหลือ **${targetWeapon.displayName} +${currentLevel - 1}** 😭`;
+            } else {
+                saveDB(db);
+                resultMsg = `💔 **ล้มเหลว!** การตีบวกผิดพลาด แต่โชคดีที่ระดับอาวุธยังคงอยู่ที่ **+${currentLevel}**`;
+            }
+        }
+
+        const upEmbed = new EmbedBuilder()
+            .setColor(isSuccess ? '#2ECC71' : '#E74C3C')
+            .setTitle(`🔨 โรงตีเหล็กสมาคมนักผจญภัย (${message.author.username})`)
+            .setDescription(resultMsg)
+            .setFooter({ text: `ค่าธรรมเนียม: ${cost.toLocaleString()} ฟรุ้งฟริ้ง | โอกาสสำเร็จ: ${Math.round(chance * 100)}%` });
+
+        return message.reply({ embeds: [upEmbed] });
+    }
+
+    // ==========================================
+    // 🧪 คำสั่งใช้ไอเทม (!use หรือ !ใช้)
+    // ==========================================
+    if (command === '!use' || command === '!ใช้') {
+        const item = args[0]?.toLowerCase();
+        if (!item) return message.reply('❌ ระบุไอเทมที่ต้องการใช้ด้วย (เช่น `!use potion` หรือ `!ใช้ โพชั่น`)');
+
+        if (item === 'potion' || item === 'โพชั่น' || item === 'ยาโพชั่น') {
+            const count = db[userId].inventory?.potion || 0;
+            if (count <= 0) return message.reply('❌ คุณไม่มี **🧪 ยาโพชั่นเร่งสปีด** ในกระเป๋า! สั่งซื้อได้ที่ `!shop`');
+
+            db[userId].inventory.potion -= 1;
+            db[userId].lastHunt = 0; // รีเซ็ตคูลดาวน์ออกล่า
+            saveDB(db);
+
+            return message.reply('🧪 **ดื่มยาโพชั่นเร่งสปีดสำเร็จ!** คูลดาวน์การออกล่า (`!hunt`) ถูกรีเซ็ตทันที! ลุยต่อได้เลย!');
+        } else {
+            return message.reply('❌ ไม่พบไอเทมนี้ที่สามารถใช้งานได้');
+        }
     }
 
     // ==========================================
@@ -147,8 +408,12 @@ client.on('messageCreate', (message) => {
             return message.reply(`⏳ เหนื่อยหอบอยู่! รออีก **${timeLeft} วินาที** ค่อยออกไปล่าใหม่นะ`);
         }
 
-        // หากมีดาบอัศวิน จะเพิ่มอัตราการชนะเป็น 65% (ปกติ 50%)
-        const hasSword = (db[userId].inventory?.sword || 0) > 0;
+        // คำนวณสเตตัสอาวุธที่ส่งผลต่อการล่า
+        const swordLvl = getWeaponLevel(db, userId, 'sword');
+        const shieldLvl = getWeaponLevel(db, userId, 'shield');
+        const hasSword = swordLvl >= 0;
+        const hasShield = shieldLvl >= 0;
+
         const winChance = hasSword ? 0.65 : 0.50;
         const isWin = Math.random() < winChance;
 
@@ -192,15 +457,37 @@ client.on('messageCreate', (message) => {
         let resultMessage = "";
 
         if (isWin) {
-            const amount = Math.floor(Math.random() * (1200 - 300 + 1)) + 300;
+            const baseAmount = Math.floor(Math.random() * (1200 - 300 + 1)) + 300;
+            const swordBonus = swordLvl > 0 ? swordLvl * 150 : 0;
+            const hasRing = (db[userId].inventory?.ring || 0) > 0;
+            const rawReward = baseAmount + swordBonus;
+            const ringBonus = hasRing ? Math.floor(rawReward * 0.2) : 0;
+            const finalReward = rawReward + ringBonus;
+
             const scenario = winScenarios[Math.floor(Math.random() * winScenarios.length)];
-            db[userId].balance += amount;
-            resultMessage = `⚔️ **ออกล่าสำเร็จ!** ${hasSword ? '*(พลังแห่งดาบอัศวินช่วยเพิ่มโอกาสชนะ! ⚔️)*\n>' : '\n>'} ${scenario}\n🎉 ได้รับเงิน **${amount} ฟรุ้งฟริ้ง!** (ยอดรวม: ${db[userId].balance})`;
+            db[userId].balance += finalReward;
+
+            let bonusNotes = [];
+            if (hasSword) bonusNotes.push(`ดาบชนะ +15%`);
+            if (swordLvl > 0) bonusNotes.push(`ดาบ +${swordLvl}: +${swordBonus}`);
+            if (hasRing) bonusNotes.push(`แหวน 💍: +${ringBonus}`);
+            const noteStr = bonusNotes.length > 0 ? `\n> *(${bonusNotes.join(' | ')})*` : '';
+
+            resultMessage = `⚔️ **ออกล่าสำเร็จ!** ${noteStr}\n> ${scenario}\n🎉 ได้รับเงิน **${finalReward.toLocaleString()} ฟรุ้งฟริ้ง!** (เงินสดคงเหลือ: ${db[userId].balance.toLocaleString()})`;
         } else {
-            const amount = Math.floor(Math.random() * (600 - 100 + 1)) + 100;
+            const baseAmount = Math.floor(Math.random() * (600 - 100 + 1)) + 100;
+            let finalLoss = baseAmount;
+            let shieldMsg = "";
+
+            if (hasShield) {
+                const discount = 30 + Math.max(0, shieldLvl) * 5; // 30% - 80%
+                finalLoss = Math.floor(baseAmount * (1 - discount / 100));
+                shieldMsg = `\n🛡️ *โล่ศักดิ์สิทธิ์ +${shieldLvl} ช่วยลดความเสียหายลง ${discount}%!*`;
+            }
+
             const scenario = loseScenarios[Math.floor(Math.random() * loseScenarios.length)];
-            db[userId].balance = Math.max(0, db[userId].balance - amount);
-            resultMessage = `💀 **ภารกิจล้มเหลว!**\n> ${scenario}\n💸 เสียเงินไป **${amount} ฟรุ้งฟริ้ง!** (ยอดคงเหลือ: ${db[userId].balance})`;
+            db[userId].balance = Math.max(0, db[userId].balance - finalLoss);
+            resultMessage = `💀 **ภารกิจล้มเหลว!** ${shieldMsg}\n> ${scenario}\n💸 เสียเงินไป **${finalLoss.toLocaleString()} ฟรุ้งฟริ้ง!** (เงินสดคงเหลือ: ${db[userId].balance.toLocaleString()})`;
         }
 
         saveDB(db);
@@ -284,7 +571,7 @@ client.on('messageCreate', (message) => {
         if (!amount || amount <= 0 || isNaN(amount)) return message.reply('❌ ใส่จำนวนเงินที่ถูกต้องด้วย');
         if (db[userId].balance < amount) return message.reply('💸 ฟรุ้งฟริ้งไม่พอ! ไปทำงานหาเงินก่อนไป');
 
-        if (!db[target.id]) db[target.id] = { balance: 0, lastDaily: 0, lastHunt: 0, lastBossAttack: 0, inventory: { amulet: 0, sword: 0 } };
+        if (!db[target.id]) db[target.id] = { balance: 0, bank: 0, lastDaily: 0, lastHunt: 0, lastBossAttack: 0, lastRob: 0, inventory: { amulet: 0, sword: 0, swordLevel: 0, potion: 0, ring: 0 } };
 
         db[userId].balance -= amount;
         db[target.id].balance += amount;
@@ -298,40 +585,81 @@ client.on('messageCreate', (message) => {
         if (!target) return message.reply('❌ จะปล้นใคร แท็กชื่อด้วย! (เช่น `!rob @ชื่อเพื่อน`)');
         if (target.id === userId) return message.reply('❌ บ้าไปแล้ว ปล้นตัวเองทำไม!');
 
-        if (!db[target.id]) db[target.id] = { balance: 0, lastDaily: 0, lastHunt: 0, lastBossAttack: 0, inventory: { amulet: 0, sword: 0 } };
+        ensureUserData(db, target.id);
         if (db[target.id].balance < 100) return message.reply('❌ เป้าหมายจนเกินไป ปล้นไปก็ไม่ได้อะไร ปล่อยเขาไปเถอะ...');
-        if (db[userId].balance < 50) return message.reply('❌ คุณต้องมีฟรุ้งฟริ้งติดตัวอย่างน้อย 50 เพื่อเป็นค่าปรับเผื่อโดนจับได้!');
+        if (db[userId].balance < 500) return message.reply('❌ คุณต้องมีฟรุ้งฟริ้งติดตัวอย่างน้อย 500 เพื่อเป็นค่าปรับเผื่อโดนจับหรือเจอยันต์สะท้อน!');
 
-        // เช็คว่าเป้าหมายมี "ยันต์ป้องกันภัย" (amulet) หรือไม่
+        // เช็คคูลดาวน์ 1 นาที
+        const cooldown = 1 * 60 * 1000;
+        const timeNow = Date.now();
+        if (!db[userId].lastRob) db[userId].lastRob = 0;
+
+        if (timeNow - db[userId].lastRob < cooldown) {
+            const timeLeft = Math.ceil((cooldown - (timeNow - db[userId].lastRob)) / 1000);
+            return message.reply(`⏳ ใจเย็นสายย่อ! คุณเพิ่งปล้นไป ต้องรอคูลดาวน์อีก **${timeLeft} วินาที** ถึงจะปล้นใหม่ได้`);
+        }
+
+        db[userId].lastRob = timeNow;
+
+        // 1. เช็คยันต์ป้องกันภัย (amulet)
         const targetAmulet = db[target.id].inventory?.amulet || 0;
         if (targetAmulet > 0) {
-            // ทำลายยันต์ของเป้าหมาย 1 ชิ้น และผู้ปล้นทำไม่สำเร็จ
-            db[target.id].inventory.amulet -= 1;
+            const penalty = Math.floor(Math.random() * (1500 - 500 + 1)) + 500;
+            const actualPenalty = Math.min(db[userId].balance, penalty);
+            db[userId].balance -= actualPenalty;
+            db[target.id].balance += actualPenalty;
 
-            // ผู้ปล้นโดนยันต์สะท้อน เสียค่าปรับเล็กน้อย 50 ฟรุ้งฟริ้ง
-            const penalty = 50;
-            db[userId].balance -= penalty;
+            db[target.id].inventory.amulet -= 1;
+            const remainingAmulets = db[target.id].inventory.amulet;
+            const amuletStatus = `🛡️ **ยันต์ของเป้าหมายถูกใช้งานและสลายไป 1 ชิ้น!** (ยันต์คงเหลือ: ${remainingAmulets} ชิ้น)`;
+
             saveDB(db);
 
             const amuletEmbed = new EmbedBuilder()
                 .setColor('#F1C40F')
                 .setTitle('🛡️ ยันต์ป้องกันภัยทำงาน!')
-                .setDescription(`⚡ **${message.author.username}** พยายามจะเข้าไปปล้น **${target.username}** แต่เจอยันต์ศักดิ์สิทธิ์เปล่งแสงทำลายโอกาสปล้น!\n\n> 🛡️ ยันต์ของ **${target.username}** ถูกสลายไป 1 ชิ้น\n> 💥 **${message.author.username}** โดนพลังยันต์สะท้อนกลับ เสียค่าปรับ **${penalty} ฟรุ้งฟริ้ง!**`);
+                .setDescription(`⚡ **${message.author.username}** พยายามจะเข้าไปปล้น **${target.username}** แต่เจอยันต์ศักดิ์สิทธิ์เปล่งแสงทำลายโอกาสปล้น!\n\n> ${amuletStatus}\n> 💥 **${message.author.username}** โดนพลังยันต์สะท้อนกลับ เสียเงิน **${actualPenalty.toLocaleString()} ฟรุ้งฟริ้ง!** (โอนเป็นค่าทำขวัญให้เหยื่อ)`);
 
             return message.reply({ embeds: [amuletEmbed] });
         }
 
+        // 2. เช็คโล่ศักดิ์สิทธิ์ (shield) ของเป้าหมาย
+        const targetShieldLvl = getWeaponLevel(db, target.id, 'shield');
+        if (targetShieldLvl >= 0) {
+            const reflectChance = (25 + Math.max(0, targetShieldLvl) * 5) / 100; // 25% - 75%
+            if (Math.random() < reflectChance) {
+                const penalty = Math.floor(Math.random() * (1500 - 500 + 1)) + 500;
+                const actualPenalty = Math.min(db[userId].balance, penalty);
+                db[userId].balance -= actualPenalty;
+                db[target.id].balance += actualPenalty;
+                saveDB(db);
+
+                const shieldEmbed = new EmbedBuilder()
+                    .setColor('#3498DB')
+                    .setTitle('🛡️ โล่ศักดิ์สิทธิ์สะท้อนการถูกปล้น!')
+                    .setDescription(`⚡ **${message.author.username}** พยายามจะปล้น **${target.username}** แต่ถูก **🛡️ โล่ศักดิ์สิทธิ์ +${targetShieldLvl}** ยกขึ้นมาบล็อกและสะท้อนกลับ!\n\n> 💥 **${message.author.username}** เสียเงิน **${actualPenalty.toLocaleString()} ฟรุ้งฟริ้ง** (โอนชดเชยให้เป้าหมาย)`);
+
+                return message.reply({ embeds: [shieldEmbed] });
+            }
+        }
+
+        // 3. คิดโอกาสปล้นโดยมีดสั้น (dagger)
+        const attackerDaggerLvl = getWeaponLevel(db, userId, 'dagger');
+        const robChance = attackerDaggerLvl >= 0 ? 0.70 : 0.60;
         const chance = Math.random();
 
-        if (chance > 0.6) {
-            const percentWin = Math.floor(Math.random() * (95 - 20 + 1)) + 20;
+        if (chance < robChance) {
+            let percentWin = Math.floor(Math.random() * (95 - 20 + 1)) + 20;
+            if (attackerDaggerLvl > 0) percentWin += (attackerDaggerLvl * 2);
+
             const stolenAmount = Math.floor((db[target.id].balance * percentWin) / 100);
 
-            db[target.id].balance -= stolenAmount;
+            db[target.id].balance = Math.max(0, db[target.id].balance - stolenAmount);
             db[userId].balance += stolenAmount;
             saveDB(db);
 
-            return message.reply(`🥷 **สำเร็จ!** คุณแอบขโมยถุงเงินของ ${target.username} มาได้ **${stolenAmount} ฟรุ้งฟริ้ง!** (${percentWin}% ของเป้าหมาย) 🏃‍♂️💨`);
+            const daggerNote = attackerDaggerLvl >= 0 ? ` *(มีดสั้น +${attackerDaggerLvl} ช่วยเพิ่มโอกาสสำเร็จ & เงินที่ได้)*` : '';
+            return message.reply(`🥷 **สำเร็จ!** คุณแอบขโมยถุงเงินของ ${target.username} มาได้ **${stolenAmount.toLocaleString()} ฟรุ้งฟริ้ง!** (${percentWin}% ของเป้าหมาย)${daggerNote} 🏃‍♂️💨`);
         } else {
             const percentLose = Math.floor(Math.random() * (50 - 10 + 1)) + 10;
             const lostAmount = Math.floor((db[userId].balance * percentLose) / 100);
@@ -339,7 +667,7 @@ client.on('messageCreate', (message) => {
             db[userId].balance -= lostAmount;
             saveDB(db);
 
-            return message.reply(`🚨 **โดนจับได้!** ยามหน้าประตูเมืองจับคุณขังคุก โดนยึดค่าปรับไป **${lostAmount} ฟรุ้งฟริ้ง** (${percentLose}% ของเงินคุณ) สมน้ำหน้า! 😂`);
+            return message.reply(`🚨 **โดนจับได้!** ยามหน้าประตูเมืองจับคุณขังคุก โดนยึดค่าปรับไป **${lostAmount.toLocaleString()} ฟรุ้งฟริ้ง** (${percentLose}% ของเงินคุณ) สมน้ำหน้า! 😂`);
         }
     }
 
@@ -350,55 +678,98 @@ client.on('messageCreate', (message) => {
         const shopEmbed = new EmbedBuilder()
             .setColor('#9B59B6')
             .setTitle('🛒 ร้านค้าสมาคมนักผจญภัย')
-            .setDescription('เลือกซื้อไอเทมเพื่อช่วยเหลือในการเดินทางได้ที่นี่!\nพิมพ์ `!buy <ชื่อไอเทม>` เพื่อทำการซื้อ')
+            .setDescription('เลือกซื้อไอเทมและอาวุธเพื่อช่วยเหลือในการเดินทางได้ที่นี่!\nพิมพ์ `!buy <ชื่อไอเทม/ชื่ออาวุธ>` เพื่อทำการซื้อ')
             .addFields(
-                { name: '🛡️ ยันต์ป้องกันภัย (`amulet`)', value: '💰 **ราคา:** 1,500 ฟรุ้งฟริ้ง\n✨ **ความสามารถ:** ป้องกันการถูกปล้น (`!rob`) ได้ 1 ครั้งแบบอัตโนมัติ', inline: false },
-                { name: '⚔️ ดาบอัศวินฝึกหัด (`sword`)', value: '💰 **ราคา:** 3,000 ฟรุ้งฟริ้ง\n✨ **ความสามารถ:** เพิ่มอัตราการชนะเมื่อออกล่า (`!hunt`) เป็น **65%** ถาวร (มีได้ 1 เล่ม)', inline: false }
+                { name: '⚔️ ดาบอัศวิน (`sword`)', value: '💰 **ราคา:** 3,000 ฟรุ้งฟริ้ง\n✨ เพิ่มโอกาสออกล่าชนะเป็น **65%** + ดาเมจบอส **+50 DMG**', inline: false },
+                { name: '🛡️ โล่ศักดิ์สิทธิ์ (`shield`)', value: '💰 **ราคา:** 3,500 ฟรุ้งฟริ้ง\n✨ ลดเงินที่เสียเวลาล่าล้มเหลว **30%** + สะท้อนการถูกปล้น **25%**', inline: false },
+                { name: '🏹 ธนูเอลฟ์ (`bow`)', value: '💰 **ราคา:** 4,000 ฟรุ้งฟริ้ง\n✨ เพิ่มโอกาสคริติคอลเวลาตีบอสเป็น **35%** + ตีแรงขึ้น', inline: false },
+                { name: '🗡️ มีดสั้นนักฆ่า (`dagger`)', value: '💰 **ราคา:** 4,500 ฟรุ้งฟริ้ง\n✨ เพิ่มโอกาสปล้น (`!rob`) เป็น **70%** + ได้เงินปล้นเพิ่มตามบวก', inline: false },
+                { name: '🧙‍♂️ คทาเวทมนตร์ (`staff`)', value: '💰 **ราคา:** 5,000 ฟรุ้งฟริ้ง\n✨ สร้างความเสียหายตีบอสมหาศาล **+120 DMG** (สายระเบิดบอส!)', inline: false },
+                { name: '🛡️ ยันต์ป้องกันภัย (`amulet`)', value: '💰 **ราคา:** 1,500 ฟรุ้งฟริ้ง | ป้องกันการถูกปล้น (`!rob`) อัตโนมัติ 1 ครั้ง', inline: false },
+                { name: '🧪 ยาโพชั่นเร่งสปีด (`potion`)', value: '💰 **ราคา:** 800 ฟรุ้งฟริ้ง | รีเซ็ตคูลดาวน์ออกล่าทันที (`!use potion`)', inline: false },
+                { name: '💍 แหวนแห่งโชคลาภ (`ring`)', value: '💰 **ราคา:** 10,000 ฟรุ้งฟริ้ง | เพิ่มเงิน `!daily` และ `!hunt` ขึ้น **20%** ถาวร', inline: false }
             )
-            .setFooter({ text: 'พิมพ์ !buy amulet หรือ !buy sword เพื่อสั่งซื้อ' });
+            .setFooter({ text: 'พิมพ์ !buy <ไอเทม> เพื่อสั่งซื้อ | พิมพ์ !ตีบวก เพื่ออัปเกรดอาวุธ' });
 
         return message.reply({ embeds: [shopEmbed] });
     }
 
     if (command === '!buy' || command === '!ซื้อ') {
         const item = args[0]?.toLowerCase();
-        if (!item) return message.reply('❌ กรุณาระบุชื่อไอเทมที่ต้องการซื้อ (เช่น `!buy amulet` หรือ `!buy sword`)');
+        if (!item) return message.reply('❌ กรุณาระบุชื่อไอเทมหรืออาวุธที่ต้องการซื้อ (เช่น `!buy sword`, `!buy shield`, `!buy amulet`)');
+
+        const targetWep = findWeapon(item);
+        if (targetWep) {
+            if (hasWeapon(db, userId, targetWep.id)) return message.reply(`❌ คุณมี **${targetWep.displayName}** อยู่แล้ว! (ใช้คำสั่ง \`!ตีบวก ${targetWep.id}\` เพื่ออัปเกรด)`);
+            if (db[userId].balance < targetWep.price) return message.reply(`💸 เงินสดไม่พอ! ${targetWep.displayName} ราคา **${targetWep.price.toLocaleString()} ฟรุ้งฟริ้ง**`);
+
+            db[userId].balance -= targetWep.price;
+            db[userId].inventory.weapons[targetWep.id] = 1; // +0 level
+            saveDB(db);
+
+            return message.reply(`🎉 สั่งซื้อ **${targetWep.displayName}** สำเร็จ! ใช้คำสั่ง \`!ตีบวก ${targetWep.id}\` เพื่ออัปเกรดได้เลย!`);
+        }
 
         if (item === 'amulet' || item === 'ยันต์') {
             const price = 1500;
-            if (db[userId].balance < price) return message.reply(`💸 เงินไม่พอ! ยันต์ป้องกันภัยราคา **${price} ฟรุ้งฟริ้ง**`);
+            if (db[userId].balance < price) return message.reply(`💸 เงินสดไม่พอ! ยันต์ป้องกันภัยราคา **${price.toLocaleString()} ฟรุ้งฟริ้ง**`);
 
             db[userId].balance -= price;
             db[userId].inventory.amulet = (db[userId].inventory.amulet || 0) + 1;
             saveDB(db);
 
-            return message.reply(`🎉 สั่งซื้อ **🛡️ ยันต์ป้องกันภัย** สำเร็จ! ตอนนี้คุณมีทั้งหมด **${db[userId].inventory.amulet} ชิ้น** (คงเหลือ: ${db[userId].balance} ฟรุ้งฟริ้ง)`);
-        } else if (item === 'sword' || item === 'ดาบ') {
-            const price = 3000;
-            if ((db[userId].inventory.sword || 0) > 0) return message.reply('❌ คุณมีดาบอัศวินอยู่แล้ว! (ครอบครองได้สูงสุด 1 เล่ม)');
-            if (db[userId].balance < price) return message.reply(`💸 เงินไม่พอ! ดาบอัศวินราคา **${price} ฟรุ้งฟริ้ง**`);
+            return message.reply(`🎉 สั่งซื้อ **🛡️ ยันต์ป้องกันภัย** สำเร็จ! ตอนนี้คุณมีทั้งหมด **${db[userId].inventory.amulet} ชิ้น** (เงินสดคงเหลือ: ${db[userId].balance.toLocaleString()} ฟรุ้งฟริ้ง)`);
+        } else if (item === 'potion' || item === 'โพชั่น' || item === 'ยาโพชั่น') {
+            const price = 800;
+            if (db[userId].balance < price) return message.reply(`💸 เงินสดไม่พอ! ยาโพชั่นเร่งสปีดราคา **${price.toLocaleString()} ฟรุ้งฟริ้ง**`);
 
             db[userId].balance -= price;
-            db[userId].inventory.sword = 1;
+            db[userId].inventory.potion = (db[userId].inventory.potion || 0) + 1;
             saveDB(db);
 
-            return message.reply(`🎉 สั่งซื้อ **⚔️ ดาบอัศวินฝึกหัด** สำเร็จ! ตอนนี้โอกาสชนะล่ามอนสเตอร์ของคุณเพิ่มเป็น **65%** แล้ว! (คงเหลือ: ${db[userId].balance} ฟรุ้งฟริ้ง)`);
+            return message.reply(`🎉 สั่งซื้อ **🧪 ยาโพชั่นเร่งสปีด** สำเร็จ! ตอนนี้คุณมี **${db[userId].inventory.potion} ขวด** (ใช้พิมพ์ \`!use potion\`)`);
+        } else if (item === 'ring' || item === 'แหวน') {
+            const price = 10000;
+            if ((db[userId].inventory.ring || 0) > 0) return message.reply('❌ คุณมีแหวนแห่งโชคลาภอยู่แล้ว! (ครอบครองได้สูงสุด 1 วง)');
+            if (db[userId].balance < price) return message.reply(`💸 เงินสดไม่พอ! แหวนแห่งโชคลาภราคา **${price.toLocaleString()} ฟรุ้งฟริ้ง**`);
+
+            db[userId].balance -= price;
+            db[userId].inventory.ring = 1;
+            saveDB(db);
+
+            return message.reply(`🎉 สั่งซื้อ **💍 แหวนแห่งโชคลาภ** สำเร็จ! ได้รับโบนัสเงินเพิ่ม 20% จากการรับเงินเดือนและออกล่าแล้ว!`);
         } else {
-            return message.reply('❌ ไม่พบไอเทมนี้ในร้านค้า! พิมพ์ `!shop` เพื่อดูรายการไอเทมที่มีขาย');
+            return message.reply('❌ ไม่พบไอเทมหรืออาวุธนี้ในร้านค้า! พิมพ์ `!shop` เพื่อดูรายการที่มีขาย');
         }
     }
 
     if (command === '!inv' || command === '!bag' || command === '!กระเป๋า') {
+        ensureUserData(db, userId);
+
+        let weaponsText = "";
+        for (const key of Object.keys(WEAPONS_CONFIG)) {
+            const w = WEAPONS_CONFIG[key];
+            const lvl = getWeaponLevel(db, userId, key);
+            if (lvl >= 0) {
+                weaponsText += `${w.displayName}: **+${lvl}**\n`;
+            }
+        }
+        if (!weaponsText) weaponsText = "ยังไม่มีอาวุธ";
+
         const amuletCount = db[userId].inventory?.amulet || 0;
-        const hasSword = (db[userId].inventory?.sword || 0) > 0;
+        const potionCount = db[userId].inventory?.potion || 0;
+        const hasRing = (db[userId].inventory?.ring || 0) > 0;
+        const ringText = hasRing ? '✅ สวมใส่อยู่ (+20% Money)' : '❌ ยังไม่มี';
 
         const invEmbed = new EmbedBuilder()
             .setColor('#3498DB')
             .setTitle(`🎒 กระเป๋าเดินทางของ ${message.author.username}`)
-            .setDescription(`💰 **ยอดเงินคงเหลือ:** ${db[userId].balance} ฟรุ้งฟริ้ง`)
+            .setDescription(`💵 **เงินสดติดตัว:** ${db[userId].balance.toLocaleString()} ฟรุ้งฟริ้ง\n🏦 **เงินในธนาคาร:** ${(db[userId].bank || 0).toLocaleString()} ฟรุ้งฟริ้ง`)
             .addFields(
+                { name: '⚔️ อาวุธในครอบครอง', value: weaponsText, inline: false },
                 { name: '🛡️ ยันต์ป้องกันภัย', value: `${amuletCount} ชิ้น`, inline: true },
-                { name: '⚔️ ดาบอัศวินฝึกหัด', value: hasSword ? '✅ ครอบครองแล้ว (โอกาสล่าชนะ +15%)' : '❌ ยังไม่มี', inline: true }
+                { name: '🧪 ยาโพชั่นเร่งสปีด', value: `${potionCount} ขวด`, inline: true },
+                { name: '💍 แหวนแห่งโชคลาภ', value: ringText, inline: true }
             )
             .setThumbnail(message.author.displayAvatarURL());
 
@@ -412,8 +783,12 @@ client.on('messageCreate', (message) => {
         // ดึงเฉพาะ ID ผู้เล่น (ตัด 'boss' ออก)
         const userIds = Object.keys(db).filter(id => id !== 'boss');
 
-        // เรียงลำดับจาก balance มากไปน้อย
-        userIds.sort((a, b) => db[b].balance - db[a].balance);
+        // เรียงลำดับจาก ทรัพย์สินรวม (balance + bank) มากไปน้อย
+        userIds.sort((a, b) => {
+            const netA = (db[a].balance || 0) + (db[a].bank || 0);
+            const netB = (db[b].balance || 0) + (db[b].bank || 0);
+            return netB - netA;
+        });
 
         const top10 = userIds.slice(0, 10);
         let leaderboardText = "";
@@ -423,7 +798,8 @@ client.on('messageCreate', (message) => {
         for (let i = 0; i < top10.length; i++) {
             const id = top10[i];
             const medal = medals[i] || `**${i + 1}.**`;
-            leaderboardText += `${medal} <@${id}> - **${db[id].balance.toLocaleString()}** ฟรุ้งฟริ้ง\n`;
+            const netWorth = (db[id].balance || 0) + (db[id].bank || 0);
+            leaderboardText += `${medal} <@${id}> - **${netWorth.toLocaleString()}** ฟรุ้งฟริ้ง\n`;
         }
 
         if (!leaderboardText) leaderboardText = "ยังไม่มีผู้เล่นในระบบ...";

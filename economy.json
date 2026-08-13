@@ -1,27 +1,63 @@
 {
     "372447964871786496": {
-        "balance": 0,
-        "lastDaily": 1786440542505,
-        "lastHunt": 1786458253052
+        "balance": 1514,
+        "lastDaily": 1786540795205,
+        "lastHunt": 1786590180732,
+        "inventory": {
+            "amulet": 0,
+            "sword": 1
+        },
+        "lastBossAttack": 1786590691791
     },
     "792785158167724033": {
-        "balance": 0,
-        "lastDaily": 1786440566992,
-        "lastHunt": 1786458060718
+        "balance": 12654,
+        "lastDaily": 1786544349876,
+        "lastHunt": 1786593788929,
+        "inventory": {
+            "amulet": 3,
+            "sword": 1
+        },
+        "lastBossAttack": 1786593795627
     },
     "990234343995768832": {
         "balance": 0,
-        "lastDaily": 0,
-        "lastHunt": 1786442451881
+        "lastDaily": 1786540812970,
+        "lastHunt": 1786594176264,
+        "inventory": {
+            "amulet": 0,
+            "sword": 1
+        },
+        "lastBossAttack": 1786594192681
     },
     "426368698094190603": {
-        "balance": 0,
-        "lastDaily": 1786441182997,
-        "lastHunt": 1786458049314
+        "balance": 1219,
+        "lastDaily": 1786540778138,
+        "lastHunt": 1786594808758,
+        "inventory": {
+            "amulet": 6,
+            "sword": 1
+        },
+        "lastBossAttack": 1786594800465
     },
     "450646668086345729": {
-        "balance": 0,
-        "lastDaily": 1786458821811,
-        "lastHunt": 1786458842270
+        "balance": 503,
+        "lastDaily": 1786546480048,
+        "lastHunt": 1786559932286,
+        "inventory": {
+            "amulet": 0,
+            "sword": 1
+        },
+        "lastBossAttack": 1786560082105
+    },
+    "boss": {
+        "name": "🔥 มังกรดำเพลิงอสูร (Ancient Black Dragon)",
+        "hp": 4201,
+        "maxHp": 6000,
+        "reward": 12000,
+        "damages": {
+            "426368698094190603": 968,
+            "990234343995768832": 478,
+            "792785158167724033": 353
+        }
     }
 }
