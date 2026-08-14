@@ -4,7 +4,6 @@ const fs = require('fs');
 
 const TOKEN = process.env.TOKEN;
 
-
 const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
@@ -15,6 +14,9 @@ const client = new Client({
 
 // ไฟล์สำหรับเก็บข้อมูลบัญชีของกิลด์
 const dbPath = './economy.json';
+
+// 🏦 ระบบปล้นธนาคารรวม (Heist) - เก็บ session ชั่วคราวใน memory
+const activeHeists = new Map(); // channelId -> { leaderId, members: Set, timeout, createdAt }
 
 function loadDB() {
     if (!fs.existsSync(dbPath)) fs.writeFileSync(dbPath, '{}');
@@ -31,6 +33,11 @@ function loadDB() {
         };
     }
     return data;
+}
+
+// 🛑 เพิ่มฟังก์ชัน saveDB ที่หายไปกลับเข้ามา
+function saveDB(data) {
+    fs.writeFileSync(dbPath, JSON.stringify(data, null, 4));
 }
 
 const WEAPONS_CONFIG = {
@@ -102,6 +109,8 @@ function ensureUserData(db, id) {
         if (db[id].bank === undefined) db[id].bank = 0;
         if (db[id].lastBossAttack === undefined) db[id].lastBossAttack = 0;
         if (db[id].lastRob === undefined) db[id].lastRob = 0;
+        if (db[id].jailUntil === undefined) db[id].jailUntil = 0;
+        if (db[id].lastHeist === undefined) db[id].lastHeist = 0;
         if (!db[id].inventory) db[id].inventory = {};
         if (db[id].inventory.amulet === undefined) db[id].inventory.amulet = 0;
         if (db[id].inventory.potion === undefined) db[id].inventory.potion = 0;
@@ -115,6 +124,7 @@ function ensureUserData(db, id) {
                 dagger: 0,
                 staff: 0
             };
+            // ไมเกรทข้อมูลดาบเก่า
             if (db[id].inventory.sword && db[id].inventory.sword > 0) {
                 const oldLvl = (db[id].inventory.swordLevel || 0) + 1;
                 db[id].inventory.weapons.sword = oldLvl;
@@ -143,14 +153,138 @@ function findWeapon(query) {
     return null;
 }
 
-client.once('ready', () => {
+// 🔒 ระบบเช็คสถานะนักโทษ (Jail System)
+function isInJail(db, userId) {
+    const jailUntil = db[userId]?.jailUntil || 0;
+    if (jailUntil <= Date.now()) return { inJail: false, minutesLeft: 0 };
+    const minutesLeft = Math.ceil((jailUntil - Date.now()) / (60 * 1000));
+    return { inJail: true, minutesLeft };
+}
+
+// 🏦 ฟังก์ชันดำเนินการปล้นธนาคาร
+async function executeHeist(channel, session) {
+    let db = loadDB();
+    const members = Array.from(session.members);
+    const memberCount = members.length;
+
+    // โอกาสสำเร็จตามจำนวนคน: 2=5%, 3=8%, 4=12%, 5=15%
+    const chances = { 2: 0.05, 3: 0.08, 4: 0.12, 5: 0.15 };
+    const successChance = chances[memberCount] || 0.05;
+    const isSuccess = Math.random() < successChance;
+
+    // ตั้งคูลดาวน์ให้ทุกคน
+    const timeNow = Date.now();
+    for (const memberId of members) {
+        ensureUserData(db, memberId);
+        db[memberId].lastHeist = timeNow;
+    }
+
+    if (isSuccess) {
+        // === ปล้นสำเร็จ! ดึงเงินทั้งหมดจากธนาคารทุกคน ===
+        const stealPercent = 1; // 100%
+        const memberSet = new Set(members);
+        let totalStolen = 0;
+
+        for (const [id, data] of Object.entries(db)) {
+            if (id === 'boss' || memberSet.has(id)) continue;
+            if (!data.bank || data.bank <= 0) continue;
+            const stolen = Math.floor(data.bank * stealPercent);
+            if (stolen <= 0) continue;
+            db[id].bank -= stolen;
+            totalStolen += stolen;
+        }
+
+        const share = Math.floor(totalStolen / memberCount);
+        let memberList = '';
+        for (const memberId of members) {
+            db[memberId].balance += share;
+            const name = session.memberNames[memberId] || memberId;
+            memberList += `• ${name}: +**${share.toLocaleString()}** ฟรุ้งฟริ้ง\n`;
+        }
+
+        saveDB(db);
+
+        const successEmbed = new EmbedBuilder()
+            .setColor('#2ECC71')
+            .setTitle('💰🎉 ปล้นธนาคารสำเร็จ!! 🎉💰')
+            .setDescription(`🦹 แก๊งโจรของ **${session.leaderName}** บุกเข้าธนาคารกลางสำเร็จ!\n\n💵 ดึงเงิน **ทั้งหมด 100%** จากบัญชีธนาคารของทุกคนในเซิร์ฟเวอร์!\n💰 เงินที่ปล้นได้ทั้งหมด: **${totalStolen.toLocaleString()} ฟรุ้งฟริ้ง**`)
+            .addFields(
+                { name: '💸 ส่วนแบ่งของสมาชิก', value: memberList || 'ไม่มี' },
+                { name: '📊 โอกาสที่สำเร็จ', value: `**${(successChance * 100).toFixed(0)}%** (${memberCount} คน)` }
+            )
+            .setFooter({ text: '⚠️ เหยื่อทุกคนสูญเสียเงินในธนาคารไปบางส่วน!' });
+
+        channel.send({ embeds: [successEmbed] });
+    } else {
+        // === ปล้นล้มเหลว! จับเข้าคุกทุกคน ===
+        const jailDuration = 2 * 60 * 60 * 1000; // 2 ชั่วโมง
+        const jailUntil = Date.now() + jailDuration;
+
+        let penaltyList = '';
+        for (const memberId of members) {
+            ensureUserData(db, memberId);
+            const name = session.memberNames[memberId] || memberId;
+
+            // 1. ติดคุก 2 ชั่วโมง
+            db[memberId].jailUntil = jailUntil;
+
+            // 2. ยึดเงินสด 100%
+            const seizedCash = db[memberId].balance;
+            db[memberId].balance = 0;
+
+            // 3. 50% โอกาสริบอาวุธ
+            let weaponPenalty = 'ไม่มี';
+            const ownedWeapons = [];
+            if (db[memberId].inventory?.weapons) {
+                for (const key of Object.keys(WEAPONS_CONFIG)) {
+                    const lvl = getWeaponLevel(db, memberId, key);
+                    if (lvl >= 0) ownedWeapons.push(key);
+                }
+            }
+
+            if (ownedWeapons.length > 0 && Math.random() < 0.5) {
+                const targetWeapon = ownedWeapons[Math.floor(Math.random() * ownedWeapons.length)];
+                const currentLvl = getWeaponLevel(db, memberId, targetWeapon);
+                const wConfig = WEAPONS_CONFIG[targetWeapon];
+
+                if (currentLvl <= 0) {
+                    // อาวุธ +0 → พังหายไปเลย
+                    db[memberId].inventory.weapons[targetWeapon] = 0;
+                    weaponPenalty = `${wConfig.displayName} **พังหาย!** 💥`;
+                } else {
+                    // ลดระดับ -1
+                    db[memberId].inventory.weapons[targetWeapon] -= 1;
+                    weaponPenalty = `${wConfig.displayName} ลดเหลือ **+${currentLvl - 1}** 📉`;
+                }
+            }
+
+            penaltyList += `**${name}:**\n> 💸 ยึดเงินสด: ${seizedCash.toLocaleString()} ฟรุ้งฟริ้ง\n> 🗡️ อาวุธ: ${weaponPenalty}\n\n`;
+        }
+
+        saveDB(db);
+
+        const failEmbed = new EmbedBuilder()
+            .setColor('#E74C3C')
+            .setTitle('🚔 โดนจับ! ปล้นธนาคารล้มเหลว!')
+            .setDescription(`🚨 ตำรวจสมาคมนักผจญภัยบุกจับแก๊งโจรของ **${session.leaderName}** ได้คาหนังคาเขา!\n\n⛓️ **สมาชิกทุกคนถูกจับเข้าคุก 2 ชั่วโมง!**\n💡 พิมพ์ \`!bail\` ที่ห้องธนาคารเพื่อจ่ายค่าประกันตัว`)
+            .addFields(
+                { name: '⚖️ บทลงโทษแต่ละคน', value: penaltyList || 'ไม่มี' },
+                { name: '📊 โอกาสที่สำเร็จ', value: `**${(successChance * 100).toFixed(0)}%** (${memberCount} คน) — โชคไม่เข้าข้าง!` }
+            )
+            .setFooter({ text: '⏱️ ติดคุก 2 ชม. | พิมพ์ !bail ที่ห้องธนาคาร (ค่าปรับ 20% ของเงินในธนาคาร หรือ 15,000)' });
+
+        channel.send({ embeds: [failEmbed] });
+    }
+}
+
+// 🛑 แก้ ready เป็น clientReady ตามมาตรฐานใหม่
+client.once('clientReady', () => {
     console.log(`บอท ${client.user.tag} พร้อมเปิดบ่อน แจกฟรุ้งฟริ้ง และเปิดศึกตีบอสแล้ว! 🎲✨⚔️`);
 });
 
 client.on('messageCreate', (message) => {
     if (message.author.bot) return;
 
-    // 🛑 ถ้าข้อความไม่ได้ขึ้นต้นด้วย ! ให้บอทเมินเฉยไปเลย ไม่ต้องกิน RAM!
     if (!message.content.startsWith('!')) return;
 
     const args = message.content.trim().split(/ +/);
@@ -159,13 +293,15 @@ client.on('messageCreate', (message) => {
     let db = loadDB();
     const userId = message.author.id;
 
-    // สร้างข้อมูลผู้ใช้เริ่มต้นหากเป็นผู้เล่นใหม่
     ensureUserData(db, userId);
 
     // ==========================================
     // 📊 ระบบสุ่มสเตตัส (!status หรือ !สเตตัส)
     // ==========================================
     if (command === '!status' || command === '!สเตตัส') {
+        if (!message.channel.name.includes('ป่ามอนสเตอร์')) {
+            return message.reply('❌ กรุณาไปสุ่มสเตตัส ออกล่า และปล้นที่ห้อง **🌲-ป่ามอนสเตอร์** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const str = Math.floor(Math.random() * 100) + 1;
         const agi = Math.floor(Math.random() * 100) + 1;
         const int = Math.floor(Math.random() * 100) + 1;
@@ -211,6 +347,9 @@ client.on('messageCreate', (message) => {
     // 🪙 เช็คเงิน และ เงินเดือน (!bal, !money, !daily)
     // ==========================================
     if (command === '!bal' || command === '!money' || command === '!เงิน') {
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const cash = db[userId].balance || 0;
         const bank = db[userId].bank || 0;
         const total = cash + bank;
@@ -224,6 +363,12 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!daily') {
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+        const jailStatus = isInJail(db, userId);
+        if (jailStatus.inJail) return message.reply(`🔒 **อยู่ในคุกอย่ามาซ่า!** คุณเป็นนักโทษอยู่! รออีก **${jailStatus.minutesLeft} นาที** ถึงจะรับเงินเดือนได้ พิมพ์ \`!bail\` เพื่อประกันตัว`);
+
         const cooldown = 24 * 60 * 60 * 1000;
         const timeNow = Date.now();
         const lastDaily = db[userId].lastDaily;
@@ -250,6 +395,9 @@ client.on('messageCreate', (message) => {
     // 🏦 ระบบธนาคาร (!dep, !with, !bank)
     // ==========================================
     if (command === '!dep' || command === '!deposit' || command === '!ฝาก') {
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const arg = args[0]?.toLowerCase();
         if (!arg) return message.reply('❌ วิธีใช้: `!ฝาก <จำนวนเงิน>` หรือ `!ฝาก all`');
 
@@ -271,6 +419,9 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!with' || command === '!withdraw' || command === '!ถอน') {
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const arg = args[0]?.toLowerCase();
         if (!arg) return message.reply('❌ วิธีใช้: `!ถอน <จำนวนเงิน>` หรือ `!ถอน all`');
 
@@ -292,10 +443,13 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!bank' || command === '!ธนาคาร') {
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const bankEmbed = new EmbedBuilder()
             .setColor('#34495E')
             .setTitle(`🏦 ธนาคารสมาคมนักผจญภัย - บัญชีของ ${message.author.username}`)
-            .setDescription(`🏦 **เงินฝากในธนาคาร:** ${(db[userId].bank || 0).toLocaleString()} ฟรุ้งฟริ้ง\n💵 **เงินสดติดตัว:** ${db[userId].balance.toLocaleString()} ฟรุ้งฟริ้ง\n\n🛡️ *เงินในธนาคารจะปลอดภัย 100% จากการโดนปล้น (!rob)*`)
+            .setDescription(`🏦 **เงินฝากในธนาคาร:** ${(db[userId].bank || 0).toLocaleString()} ฟรุ้งฟริ้ง\n💵 **เงินสดติดตัว:** ${db[userId].balance.toLocaleString()} ฟรุ้งฟริ้ง\n\n🛡️ *เงินในธนาคารปลอดภัยจากการปล้นรายบุคคล (!rob)*\n⚠️ *แต่ระวัง! แก๊งโจรอาจรวมตี้ปล้นธนาคารได้ (!heist)*`)
             .setFooter({ text: 'พิมพ์ !ฝาก <จำนวน> เพื่อฝากเงิน | !ถอน <จำนวน> เพื่อถอนเงิน' });
         return message.reply({ embeds: [bankEmbed] });
     }
@@ -304,9 +458,11 @@ client.on('messageCreate', (message) => {
     // 🔨 ระบบตีบวกอุปกรณ์ (!upgrade หรือ !ตีบวก)
     // ==========================================
     if (command === '!upgrade' || command === '!ตีบวก') {
+        if (!message.channel.name.includes('ตลาดมืด')) {
+            return message.reply('❌ กรุณาไปซื้อขาย ตีบวก และเสี่ยงโชคที่ห้อง **🛒-ตลาดมืด-และ-คาสิโน** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const weaponArg = args[0]?.toLowerCase();
 
-        // หากผู้ใช้พิมพ์ !ตีบวก โดยไม่ได้ระบุอาวุธหรือระบุชื่อไม่ถูก
         const targetWeapon = findWeapon(weaponArg);
 
         if (!targetWeapon) {
@@ -378,6 +534,9 @@ client.on('messageCreate', (message) => {
     // 🧪 คำสั่งใช้ไอเทม (!use หรือ !ใช้)
     // ==========================================
     if (command === '!use' || command === '!ใช้') {
+        if (!message.channel.name.includes('ป่ามอนสเตอร์')) {
+            return message.reply('❌ กรุณาไปสุ่มสเตตัส ออกล่า และปล้นที่ห้อง **🌲-ป่ามอนสเตอร์** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const item = args[0]?.toLowerCase();
         if (!item) return message.reply('❌ ระบุไอเทมที่ต้องการใช้ด้วย (เช่น `!use potion` หรือ `!ใช้ โพชั่น`)');
 
@@ -386,7 +545,7 @@ client.on('messageCreate', (message) => {
             if (count <= 0) return message.reply('❌ คุณไม่มี **🧪 ยาโพชั่นเร่งสปีด** ในกระเป๋า! สั่งซื้อได้ที่ `!shop`');
 
             db[userId].inventory.potion -= 1;
-            db[userId].lastHunt = 0; // รีเซ็ตคูลดาวน์ออกล่า
+            db[userId].lastHunt = 0;
             saveDB(db);
 
             return message.reply('🧪 **ดื่มยาโพชั่นเร่งสปีดสำเร็จ!** คูลดาวน์การออกล่า (`!hunt`) ถูกรีเซ็ตทันที! ลุยต่อได้เลย!');
@@ -399,6 +558,12 @@ client.on('messageCreate', (message) => {
     // ⚔️ ออกล่ามอนสเตอร์ (!hunt หรือ !ล่า)
     // ==========================================
     if (command === '!hunt' || command === '!ล่า') {
+        if (!message.channel.name.includes('ป่ามอนสเตอร์')) {
+            return message.reply('❌ กรุณาไปสุ่มสเตตัส ออกล่า และปล้นที่ห้อง **🌲-ป่ามอนสเตอร์** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+        const jailStatus = isInJail(db, userId);
+        if (jailStatus.inJail) return message.reply(`🔒 **อยู่ในคุกอย่ามาซ่า!** คุณเป็นนักโทษอยู่! รออีก **${jailStatus.minutesLeft} นาที** ถึงจะออกล่าได้ พิมพ์ \`!bail\` เพื่อประกันตัว`);
+
         const cooldown = 3 * 60 * 1000;
         const timeNow = Date.now();
         if (!db[userId].lastHunt) db[userId].lastHunt = 0;
@@ -408,7 +573,6 @@ client.on('messageCreate', (message) => {
             return message.reply(`⏳ เหนื่อยหอบอยู่! รออีก **${timeLeft} วินาที** ค่อยออกไปล่าใหม่นะ`);
         }
 
-        // คำนวณสเตตัสอาวุธที่ส่งผลต่อการล่า
         const swordLvl = getWeaponLevel(db, userId, 'sword');
         const shieldLvl = getWeaponLevel(db, userId, 'shield');
         const hasSword = swordLvl >= 0;
@@ -504,6 +668,12 @@ client.on('messageCreate', (message) => {
     // 🎲 เสี่ยงโชค/มินิเกม (!cf และ !slots)
     // ==========================================
     if (command === '!cf' || command === '!coinflip') {
+        if (!message.channel.name.includes('ตลาดมืด')) {
+            return message.reply('❌ กรุณาไปซื้อขาย ตีบวก และเสี่ยงโชคที่ห้อง **🛒-ตลาดมืด-และ-คาสิโน** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+        const jailStatus = isInJail(db, userId);
+        if (jailStatus.inJail) return message.reply(`🔒 **อยู่ในคุกอย่ามาซ่า!** คุณเป็นนักโทษอยู่! รออีก **${jailStatus.minutesLeft} นาที** ถึงจะเสี่ยงโชคได้ พิมพ์ \`!bail\` เพื่อประกันตัว`);
+
         const choice = args[0]?.toLowerCase();
         const bet = parseInt(args[1]);
 
@@ -525,6 +695,12 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!slots') {
+        if (!message.channel.name.includes('ตลาดมืด')) {
+            return message.reply('❌ กรุณาไปซื้อขาย ตีบวก และเสี่ยงโชคที่ห้อง **🛒-ตลาดมืด-และ-คาสิโน** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+        const jailStatus = isInJail(db, userId);
+        if (jailStatus.inJail) return message.reply(`🔒 **อยู่ในคุกอย่ามาซ่า!** คุณเป็นนักโทษอยู่! รออีก **${jailStatus.minutesLeft} นาที** ถึงจะเสี่ยงโชคได้ พิมพ์ \`!bail\` เพื่อประกันตัว`);
+
         const bet = parseInt(args[0]);
         if (!bet || bet <= 0 || isNaN(bet)) return message.reply('❌ วิธีเล่น: พิมพ์ `!slots <จำนวนเงิน>`');
         if (db[userId].balance < bet) return message.reply('💸 ฟรุ้งฟริ้งไม่พอลงตู้สล็อต!');
@@ -563,6 +739,9 @@ client.on('messageCreate', (message) => {
     // 🤝 สังคมและการโอนเงิน (!pay และ !rob)
     // ==========================================
     if (command === '!pay') {
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const target = message.mentions.users.first();
         const amount = parseInt(args[1]);
 
@@ -571,7 +750,8 @@ client.on('messageCreate', (message) => {
         if (!amount || amount <= 0 || isNaN(amount)) return message.reply('❌ ใส่จำนวนเงินที่ถูกต้องด้วย');
         if (db[userId].balance < amount) return message.reply('💸 ฟรุ้งฟริ้งไม่พอ! ไปทำงานหาเงินก่อนไป');
 
-        if (!db[target.id]) db[target.id] = { balance: 0, bank: 0, lastDaily: 0, lastHunt: 0, lastBossAttack: 0, lastRob: 0, inventory: { amulet: 0, sword: 0, swordLevel: 0, potion: 0, ring: 0 } };
+        // 🛑 ปรับให้ใช้ ensureUserData เพื่อความชัวร์และไม่บัค
+        ensureUserData(db, target.id);
 
         db[userId].balance -= amount;
         db[target.id].balance += amount;
@@ -581,6 +761,12 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!rob') {
+        if (!message.channel.name.includes('ป่ามอนสเตอร์')) {
+            return message.reply('❌ กรุณาไปสุ่มสเตตัส ออกล่า และปล้นที่ห้อง **🌲-ป่ามอนสเตอร์** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+        const jailStatus = isInJail(db, userId);
+        if (jailStatus.inJail) return message.reply(`🔒 **อยู่ในคุกอย่ามาซ่า!** คุณเป็นนักโทษอยู่! รออีก **${jailStatus.minutesLeft} นาที** ถึงจะปล้นได้ พิมพ์ \`!bail\` เพื่อประกันตัว`);
+
         const target = message.mentions.users.first();
         if (!target) return message.reply('❌ จะปล้นใคร แท็กชื่อด้วย! (เช่น `!rob @ชื่อเพื่อน`)');
         if (target.id === userId) return message.reply('❌ บ้าไปแล้ว ปล้นตัวเองทำไม!');
@@ -589,7 +775,6 @@ client.on('messageCreate', (message) => {
         if (db[target.id].balance < 100) return message.reply('❌ เป้าหมายจนเกินไป ปล้นไปก็ไม่ได้อะไร ปล่อยเขาไปเถอะ...');
         if (db[userId].balance < 500) return message.reply('❌ คุณต้องมีฟรุ้งฟริ้งติดตัวอย่างน้อย 500 เพื่อเป็นค่าปรับเผื่อโดนจับหรือเจอยันต์สะท้อน!');
 
-        // เช็คคูลดาวน์ 1 นาที
         const cooldown = 1 * 60 * 1000;
         const timeNow = Date.now();
         if (!db[userId].lastRob) db[userId].lastRob = 0;
@@ -626,7 +811,7 @@ client.on('messageCreate', (message) => {
         // 2. เช็คโล่ศักดิ์สิทธิ์ (shield) ของเป้าหมาย
         const targetShieldLvl = getWeaponLevel(db, target.id, 'shield');
         if (targetShieldLvl >= 0) {
-            const reflectChance = (25 + Math.max(0, targetShieldLvl) * 5) / 100; // 25% - 75%
+            const reflectChance = (25 + Math.max(0, targetShieldLvl) * 5) / 100;
             if (Math.random() < reflectChance) {
                 const penalty = Math.floor(Math.random() * (1500 - 500 + 1)) + 500;
                 const actualPenalty = Math.min(db[userId].balance, penalty);
@@ -675,6 +860,9 @@ client.on('messageCreate', (message) => {
     // 🛒 1. ระบบร้านค้าและกระเป๋าเก็บของ (!shop, !buy, !inv)
     // ==========================================
     if (command === '!shop' || command === '!ร้านค้า') {
+        if (!message.channel.name.includes('ตลาดมืด')) {
+            return message.reply('❌ กรุณาไปซื้อขาย ตีบวก และเสี่ยงโชคที่ห้อง **🛒-ตลาดมืด-และ-คาสิโน** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const shopEmbed = new EmbedBuilder()
             .setColor('#9B59B6')
             .setTitle('🛒 ร้านค้าสมาคมนักผจญภัย')
@@ -695,6 +883,9 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!buy' || command === '!ซื้อ') {
+        if (!message.channel.name.includes('ตลาดมืด')) {
+            return message.reply('❌ กรุณาไปซื้อขาย ตีบวก และเสี่ยงโชคที่ห้อง **🛒-ตลาดมืด-และ-คาสิโน** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const item = args[0]?.toLowerCase();
         if (!item) return message.reply('❌ กรุณาระบุชื่อไอเทมหรืออาวุธที่ต้องการซื้อ (เช่น `!buy sword`, `!buy shield`, `!buy amulet`)');
 
@@ -744,6 +935,9 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!inv' || command === '!bag' || command === '!กระเป๋า') {
+        if (!message.channel.name.includes('ตลาดมืด')) {
+            return message.reply('❌ กรุณาไปซื้อขาย ตีบวก และเสี่ยงโชคที่ห้อง **🛒-ตลาดมืด-และ-คาสิโน** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         ensureUserData(db, userId);
 
         let weaponsText = "";
@@ -780,10 +974,11 @@ client.on('messageCreate', (message) => {
     // 🏆 2. ระบบตารางอันดับเศรษฐี (!rich หรือ !leaderboard)
     // ==========================================
     if (command === '!rich' || command === '!leaderboard' || command === '!อันดับ') {
-        // ดึงเฉพาะ ID ผู้เล่น (ตัด 'boss' ออก)
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const userIds = Object.keys(db).filter(id => id !== 'boss');
 
-        // เรียงลำดับจาก ทรัพย์สินรวม (balance + bank) มากไปน้อย
         userIds.sort((a, b) => {
             const netA = (db[a].balance || 0) + (db[a].bank || 0);
             const netB = (db[b].balance || 0) + (db[b].bank || 0);
@@ -818,15 +1013,16 @@ client.on('messageCreate', (message) => {
     // 👹 4. ระบบสู้บอสโลก (!boss และ !attack)
     // ==========================================
     if (command === '!boss' || command === '!บอส') {
+        if (!message.channel.name.includes('บอสโลก')) {
+            return message.reply('❌ กรุณาไปเช็คสถานะและโจมตีบอสที่ห้อง **🐉-ลานประลองบอสโลก** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const boss = db['boss'];
 
-        // สร้างแถบ HP สวยๆ (10 หลอด)
         const percentage = Math.max(0, boss.hp / boss.maxHp);
         const filled = Math.round(percentage * 10);
         const empty = 10 - filled;
         const hpBar = '🟩'.repeat(filled) + '⬛'.repeat(empty);
 
-        // ดึงรายชื่อคนทำดาเมจสูงสุด 5 อันดับ
         const dmgEntries = Object.entries(boss.damages || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
         let topDmgText = "";
         dmgEntries.forEach(([id, dmg], idx) => {
@@ -845,10 +1041,13 @@ client.on('messageCreate', (message) => {
     }
 
     if (command === '!attack' || command === '!ตีบอส') {
+        if (!message.channel.name.includes('บอสโลก')) {
+            return message.reply('❌ กรุณาไปเช็คสถานะและโจมตีบอสที่ห้อง **🐉-ลานประลองบอสโลก** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
         const boss = db['boss'];
         if (boss.hp <= 0) return message.reply('☠️ บอสเพิ่งพ่ายแพ้ไป! กำลังรอระบบเกิดบอสตัวใหม่...');
 
-        const cooldown = 5 * 60 * 1000; // 5 นาที
+        const cooldown = 5 * 60 * 1000;
         const timeNow = Date.now();
         const lastAttack = db[userId].lastBossAttack || 0;
 
@@ -859,30 +1058,54 @@ client.on('messageCreate', (message) => {
             return message.reply(`⏳ พักเหนื่อยจากการร่ายเวท! รอคูลดาวน์อีก **${mins} นาที ${secs} วินาที** ค่อยตีใหม่`);
         }
 
-        // คำนวณดาเมจที่ทำได้ (สุ่ม 80 - 250 DMG)
-        const hasSword = (db[userId].inventory?.sword || 0) > 0;
+        // 🛑 เพิ่มระบบคำนวณพลังอาวุธแบบเต็มพิกัด (ดาบ, ธนู, คทา)
+        const swordLvl = getWeaponLevel(db, userId, 'sword');
+        const bowLvl = getWeaponLevel(db, userId, 'bow');
+        const staffLvl = getWeaponLevel(db, userId, 'staff');
+
         let damage = Math.floor(Math.random() * (250 - 80 + 1)) + 80;
-        if (hasSword) damage += 50; // โบนัสดาเมจจากดาบ
+        let weaponBonusStr = [];
 
-        const isCritical = Math.random() < 0.2;
-        if (isCritical) damage = Math.floor(damage * 1.5);
+        // คำนวณดาเมจพื้นฐานจาก ดาบ และ คทา
+        if (swordLvl >= 0) {
+            const swordBonus = 50 + (swordLvl * 25);
+            damage += swordBonus;
+            weaponBonusStr.push(`ดาบอัศวิน +${swordBonus}`);
+        }
+        if (staffLvl >= 0) {
+            const staffBonus = 120 + (staffLvl * 45);
+            damage += staffBonus;
+            weaponBonusStr.push(`คทาเวทมนตร์ +${staffBonus}`);
+        }
 
-        // ลด HP บอส
+        // คำนวณโอกาสติดคริติคอลจาก ธนู
+        let critChance = bowLvl >= 0 ? 0.35 : 0.20;
+        let critMult = 1.5;
+        if (bowLvl >= 0) {
+            critMult = Math.min(2.5, 1.5 + (bowLvl * 0.1));
+            weaponBonusStr.push(`ธนูเอลฟ์ x${critMult.toFixed(1)}`);
+        }
+
+        const isCritical = Math.random() < critChance;
+        if (isCritical) {
+            damage = Math.floor(damage * critMult);
+        }
+
+        // หักพลังชีวิตบอส
         boss.hp = Math.max(0, boss.hp - damage);
         if (!boss.damages) boss.damages = {};
         boss.damages[userId] = (boss.damages[userId] || 0) + damage;
         db[userId].lastBossAttack = timeNow;
 
-        let attackResultMsg = `💥 **${message.author.username}** ง้างอาวุธโจมตีใส่ ${boss.name}!\n> ${isCritical ? '💥 **CRITICAL HIT!!** ' : ''}สร้างความเสียหาย **${damage} DMG!** ${hasSword ? '(+50 จากดาบอัศวิน)' : ''}\n> HP บอสเหลือ: **${boss.hp.toLocaleString()} / ${boss.maxHp.toLocaleString()}**`;
+        const bonusNote = weaponBonusStr.length > 0 ? `*(โบนัสอาวุธ: ${weaponBonusStr.join(' | ')})*` : '';
+        let attackResultMsg = `💥 **${message.author.username}** โจมตีใส่ ${boss.name}!\n> ${isCritical ? '💥 **CRITICAL HIT!!** ' : ''}สร้างความเสียหาย **${damage.toLocaleString()} DMG!** ${bonusNote}\n> HP บอสเหลือ: **${boss.hp.toLocaleString()} / ${boss.maxHp.toLocaleString()}**`;
 
-        // หากบอสพ่ายแพ้จากการโจมตีครั้งนี้!
+        // บอสพ่ายแพ้
         if (boss.hp <= 0) {
             attackResultMsg += `\n\n🎉🎉 **บอสถูกพิชิตแล้ว!!** 🎉🎉\n⚔️ **${message.author.username}** ได้รับโบนัส **Last Hit 1,500 ฟรุ้งฟริ้ง!**`;
 
-            // จ่ายโบนัส Last Hit
             db[userId].balance += 1500;
 
-            // คำนวณแจกจ่ายรางวัลตามสัดส่วนดาเมจ
             const totalDmg = Object.values(boss.damages).reduce((a, b) => a + b, 0);
             let rewardSummary = "";
 
@@ -896,7 +1119,6 @@ client.on('messageCreate', (message) => {
                 rewardSummary += `• <@${attackerId}>: ได้รับ **${rewardAmount.toLocaleString()}** ฟรุ้งฟริ้ง (${(sharePercent * 100).toFixed(1)}% DMG)\n`;
             }
 
-            // รีเซ็ตบอสตัวใหม่
             db['boss'] = {
                 name: '🔥 มังกรดำเพลิงอสูร (Ancient Black Dragon)',
                 hp: 6000,
@@ -922,6 +1144,160 @@ client.on('messageCreate', (message) => {
             .setDescription(attackResultMsg);
 
         return message.reply({ embeds: [attackEmbed] });
+    }
+
+    // ==========================================
+    // 🏦 ระบบปล้นธนาคารรวม (!heist, !join, !bail)
+    // ==========================================
+    if (command === '!heist' || command === '!ปล้น') {
+        if (!message.channel.name.includes('ป่ามอนสเตอร์')) {
+            return message.reply('❌ กรุณาไปรวมแก๊งปล้นที่ห้อง **🌲-ป่ามอนสเตอร์** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+
+        // เช็คสถานะนักโทษ
+        const jailStatus = isInJail(db, userId);
+        if (jailStatus.inJail) return message.reply(`🔒 **อยู่ในคุกอย่ามาซ่า!** คุณเป็นนักโทษอยู่! รออีก **${jailStatus.minutesLeft} นาที** ถึงจะปล้นได้ พิมพ์ \`!bail\` เพื่อประกันตัว`);
+
+        // เช็คคูลดาวน์ 30 นาที
+        const heistCooldown = 30 * 60 * 1000;
+        const timeNow = Date.now();
+        if (timeNow - (db[userId].lastHeist || 0) < heistCooldown) {
+            const timeLeft = Math.ceil((heistCooldown - (timeNow - db[userId].lastHeist)) / (60 * 1000));
+            return message.reply(`⏳ คุณเพิ่งปล้นไป! ต้องรอคูลดาวน์อีก **${timeLeft} นาที** ถึงจะปล้นใหม่ได้`);
+        }
+
+        // เช็คว่ามี heist กำลังเปิดอยู่ในห้องนี้ไหม
+        if (activeHeists.has(message.channel.id)) {
+            return message.reply('❌ มีการปล้นกำลังรวบรวมทีมอยู่แล้วในห้องนี้! พิมพ์ `!join` เพื่อเข้าร่วม');
+        }
+
+        // สร้าง heist session
+        const heistSession = {
+            leaderId: userId,
+            leaderName: message.author.username,
+            members: new Set([userId]),
+            memberNames: { [userId]: message.author.username },
+            createdAt: Date.now(),
+            timeout: null
+        };
+
+        activeHeists.set(message.channel.id, heistSession);
+
+        // ตั้ง timeout 60 วินาที
+        heistSession.timeout = setTimeout(async () => {
+            const session = activeHeists.get(message.channel.id);
+            if (!session) return;
+            activeHeists.delete(message.channel.id);
+
+            if (session.members.size < 2) {
+                const cancelEmbed = new EmbedBuilder()
+                    .setColor('#95A5A6')
+                    .setTitle('❌ การปล้นถูกยกเลิก!')
+                    .setDescription('หมดเวลาแล้ว! รวบรวมคนไม่ครบ 2 คน การปล้นถูกยกเลิก...\n\n> 💡 ครั้งหน้าชวนเพื่อนมาพิมพ์ `!join` ให้ทันภายใน 60 วินาทีนะ!');
+                return message.channel.send({ embeds: [cancelEmbed] });
+            }
+
+            // Execute heist!
+            executeHeist(message.channel, session);
+        }, 60000);
+
+        const heistEmbed = new EmbedBuilder()
+            .setColor('#E74C3C')
+            .setTitle('🚨 กำลังรวบรวมทีมปล้นธนาคาร!')
+            .setDescription(`🦹 **${message.author.username}** กำลังวางแผนปล้นธนาคารกลาง!\n\n👥 พิมพ์ \`!join\` เพื่อเข้าร่วมแก๊ง (ต้องการอีก **1-4 คน**)\n⏱️ เหลือเวลา **60 วินาที**\n\n⚠️ **คำเตือน:** ถ้าปล้นพลาดจะโดนจับเข้าคุกทุกคน!\n• 🕒 ติดคุก 2 ชั่วโมง\n• 💸 ยึดเงินสดทั้งหมด 100%\n• 🗡️ 50% โอกาสอาวุธพังหรือลดระดับ`)
+            .addFields(
+                { name: '👥 สมาชิกแก๊ง (1/5)', value: `• ${message.author.username} (หัวหน้า)` },
+                { name: '📊 โอกาสสำเร็จปัจจุบัน', value: '**5%** (เพิ่มคนเพิ่มโอกาส! สูงสุด 15%)' }
+            )
+            .setFooter({ text: '⚠️ ธนาคารไม่ใช่ Safe Zone อีกต่อไป! | ปล้นได้ 1-3% จากบัญชีทุกคน' });
+
+        return message.reply({ embeds: [heistEmbed] });
+    }
+
+    if (command === '!join' || command === '!เข้าร่วม') {
+        if (!message.channel.name.includes('ป่ามอนสเตอร์')) {
+            return message.reply('❌ กรุณาไปรวมแก๊งปล้นที่ห้อง **🌲-ป่ามอนสเตอร์** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+
+        const session = activeHeists.get(message.channel.id);
+        if (!session) return message.reply('❌ ไม่มีการปล้นที่กำลังรวบรวมทีมอยู่ตอนนี้! ใช้ `!heist` เพื่อเริ่มปล้น');
+
+        if (session.members.has(userId)) return message.reply('❌ คุณเข้าร่วมแก๊งนี้แล้ว! รอสมาชิกคนอื่นเข้ามา...');
+
+        // เช็คสถานะนักโทษ
+        const jailStatus = isInJail(db, userId);
+        if (jailStatus.inJail) return message.reply(`🔒 **อยู่ในคุกอย่ามาซ่า!** คุณเป็นนักโทษอยู่! รออีก **${jailStatus.minutesLeft} นาที** ถึงจะร่วมปล้นได้`);
+
+        // เช็คคูลดาวน์
+        const heistCooldown = 30 * 60 * 1000;
+        if (Date.now() - (db[userId].lastHeist || 0) < heistCooldown) {
+            const timeLeft = Math.ceil((heistCooldown - (Date.now() - db[userId].lastHeist)) / (60 * 1000));
+            return message.reply(`⏳ คุณเพิ่งปล้นไป! ต้องรอคูลดาวน์อีก **${timeLeft} นาที** ถึงจะร่วมปล้นใหม่ได้`);
+        }
+
+        if (session.members.size >= 5) return message.reply('❌ ทีมเต็มแล้ว (5/5 คน)!');
+
+        // เพิ่มสมาชิก
+        session.members.add(userId);
+        session.memberNames[userId] = message.author.username;
+
+        const memberCount = session.members.size;
+        const chances = { 2: '5%', 3: '8%', 4: '12%', 5: '15%' };
+        const currentChance = chances[memberCount] || '5%';
+
+        let memberList = '';
+        for (const [memberId, name] of Object.entries(session.memberNames)) {
+            memberList += `• ${name}${memberId === session.leaderId ? ' (หัวหน้า)' : ''}\n`;
+        }
+
+        const joinEmbed = new EmbedBuilder()
+            .setColor('#F39C12')
+            .setTitle('🦹 สมาชิกใหม่เข้าร่วมแก๊ง!')
+            .setDescription(`**${message.author.username}** เข้าร่วมทีมปล้นธนาคาร!`)
+            .addFields(
+                { name: `👥 สมาชิกแก๊ง (${memberCount}/5)`, value: memberList },
+                { name: '📊 โอกาสสำเร็จปัจจุบัน', value: `**${currentChance}**` }
+            );
+
+        message.channel.send({ embeds: [joinEmbed] });
+
+        // ถ้าครบ 5 คน เริ่มปล้นทันที!
+        if (memberCount >= 5) {
+            clearTimeout(session.timeout);
+            activeHeists.delete(message.channel.id);
+            executeHeist(message.channel, session);
+        }
+
+        return;
+    }
+
+    if (command === '!bail' || command === '!ประกันตัว') {
+        if (!message.channel.name.includes('ธนาคาร')) {
+            return message.reply('❌ กรุณาไปจ่ายค่าประกันตัวที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
+        }
+
+        const jailStatus = isInJail(db, userId);
+        if (!jailStatus.inJail) return message.reply('✅ คุณไม่ได้ติดคุกอยู่! สบายใจได้~');
+
+        // คิดค่าประกันตัว = 20% ของเงินในธนาคาร หรือ 15,000 อย่างใดอย่างหนึ่งที่สูงกว่า
+        const bankPercent = Math.floor((db[userId].bank || 0) * 0.20);
+        const bailCost = Math.max(bankPercent, 15000);
+
+        if ((db[userId].bank || 0) < bailCost) {
+            return message.reply(`💸 **เงินในธนาคารไม่พอจ่ายค่าประกันตัว!**\n> ค่าประกันตัว: **${bailCost.toLocaleString()} ฟรุ้งฟริ้ง**\n> เงินในธนาคาร: **${(db[userId].bank || 0).toLocaleString()} ฟรุ้งฟริ้ง**\n> 😔 ต้องรอหมดโทษอีก **${jailStatus.minutesLeft} นาที**`);
+        }
+
+        db[userId].bank -= bailCost;
+        db[userId].jailUntil = 0;
+        saveDB(db);
+
+        const bailEmbed = new EmbedBuilder()
+            .setColor('#2ECC71')
+            .setTitle('⚖️ ประกันตัวสำเร็จ!')
+            .setDescription(`**${message.author.username}** จ่ายค่าประกันตัว **${bailCost.toLocaleString()} ฟรุ้งฟริ้ง** แล้ว!\n\n> 🏦 เงินในธนาคารคงเหลือ: **${db[userId].bank.toLocaleString()} ฟรุ้งฟริ้ง**\n> ✅ คุณเป็นอิสระแล้ว! กลับไปหาเงินได้เลย`)
+            .setFooter({ text: '💡 ครั้งหน้าคิดให้ดีก่อนไปปล้นนะ!' });
+
+        return message.reply({ embeds: [bailEmbed] });
     }
 });
 

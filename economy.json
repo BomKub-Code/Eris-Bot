@@ -1,23 +1,45 @@
 {
     "372447964871786496": {
-        "balance": 1514,
+        "balance": 883,
         "lastDaily": 1786540795205,
-        "lastHunt": 1786590180732,
+        "lastHunt": 1786612573653,
         "inventory": {
             "amulet": 0,
-            "sword": 1
+            "sword": 1,
+            "potion": 0,
+            "ring": 0,
+            "weapons": {
+                "sword": 1,
+                "shield": 0,
+                "bow": 0,
+                "dagger": 0,
+                "staff": 0
+            }
         },
-        "lastBossAttack": 1786590691791
+        "lastBossAttack": 1786612545762,
+        "bank": 0,
+        "lastRob": 1786612599974
     },
     "792785158167724033": {
-        "balance": 12654,
+        "balance": 5937,
         "lastDaily": 1786544349876,
-        "lastHunt": 1786593788929,
+        "lastHunt": 1786611979277,
         "inventory": {
-            "amulet": 3,
-            "sword": 1
+            "amulet": 2,
+            "sword": 1,
+            "potion": 0,
+            "ring": 0,
+            "weapons": {
+                "sword": 1,
+                "shield": 1,
+                "bow": 0,
+                "dagger": 0,
+                "staff": 1
+            }
         },
-        "lastBossAttack": 1786593795627
+        "lastBossAttack": 1786612527177,
+        "bank": 0,
+        "lastRob": 0
     },
     "990234343995768832": {
         "balance": 0,
@@ -30,14 +52,25 @@
         "lastBossAttack": 1786594192681
     },
     "426368698094190603": {
-        "balance": 1219,
+        "balance": 2609,
         "lastDaily": 1786540778138,
-        "lastHunt": 1786594808758,
+        "lastHunt": 1786612183199,
         "inventory": {
             "amulet": 6,
-            "sword": 1
+            "sword": 1,
+            "potion": 0,
+            "ring": 0,
+            "weapons": {
+                "sword": 1,
+                "shield": 0,
+                "bow": 0,
+                "dagger": 0,
+                "staff": 0
+            }
         },
-        "lastBossAttack": 1786594800465
+        "lastBossAttack": 1786612198163,
+        "bank": 0,
+        "lastRob": 0
     },
     "450646668086345729": {
         "balance": 503,
@@ -51,13 +84,14 @@
     },
     "boss": {
         "name": "🔥 มังกรดำเพลิงอสูร (Ancient Black Dragon)",
-        "hp": 4201,
+        "hp": 1091,
         "maxHp": 6000,
         "reward": 12000,
         "damages": {
-            "426368698094190603": 968,
+            "426368698094190603": 1668,
             "990234343995768832": 478,
-            "792785158167724033": 353
+            "792785158167724033": 2036,
+            "372447964871786496": 727
         }
     }
 }
