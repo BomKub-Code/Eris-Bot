@@ -36,7 +36,7 @@ for (const feature of features) {
     }
 }
 
-client.once('clientReady', () => {
+client.once('ready', () => {
     console.log(`บอท ${client.user.tag} พร้อมเปิดบ่อน แจกฟรุ้งฟริ้ง และเปิดศึกตีบอสแล้ว! 🎲✨⚔️`);
 });
 
