@@ -1,6 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const { saveDB } = require('./db');
 const { WEAPONS_CONFIG, getWeaponLevel, hasWeapon, findWeapon } = require('./weapons');
+const { getActorName } = require('./nameResolver');
 
 // ==========================================
 // 🔨 ระบบตีบวกอุปกรณ์ (!upgrade หรือ !ตีบวก)
@@ -30,7 +31,7 @@ module.exports = {
 
             const infoEmbed = new EmbedBuilder()
                 .setColor('#F1C40F')
-                .setTitle(`🔨 โรงตีเหล็กสมาคมนักผจญภัย (${message.author.username})`)
+                .setTitle(`🔨 โรงตีเหล็กสมาคมนักผจญภัย (${getActorName(message)})`)
                 .setDescription(`**อาวุธที่คุณครอบครอง:**\n${ownedList}\n💡 **วิธีตีบวก:** พิมพ์ \`!ตีบวก <ชื่ออาวุธ>\`\n*(เช่น \`!ตีบวก sword\`, \`!ตีบวก shield\`, \`!ตีบวก bow\`, \`!ตีบวก dagger\`, \`!ตีบวก staff\`)*`)
                 .setFooter({ text: 'ระดับตีบวกสูงสุดคือ +10' });
 
@@ -74,7 +75,7 @@ module.exports = {
 
         const upEmbed = new EmbedBuilder()
             .setColor(isSuccess ? '#2ECC71' : '#E74C3C')
-            .setTitle(`🔨 โรงตีเหล็กสมาคมนักผจญภัย (${message.author.username})`)
+            .setTitle(`🔨 โรงตีเหล็กสมาคมนักผจญภัย (${getActorName(message)})`)
             .setDescription(resultMsg)
             .setFooter({ text: `ค่าธรรมเนียม: ${cost.toLocaleString()} ฟรุ้งฟริ้ง | โอกาสสำเร็จ: ${Math.round(chance * 100)}%` });
 

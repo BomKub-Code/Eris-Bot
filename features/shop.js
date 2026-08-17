@@ -1,6 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const { saveDB, ensureUserData } = require('./db');
 const { WEAPONS_CONFIG, getWeaponLevel, hasWeapon, findWeapon } = require('./weapons');
+const { getActorName } = require('./nameResolver');
 
 // ==========================================
 // 🛒 ระบบร้านค้าและกระเป๋าเก็บของ (!shop, !buy, !inv)
@@ -112,7 +113,7 @@ module.exports = {
 
             const invEmbed = new EmbedBuilder()
                 .setColor('#3498DB')
-                .setTitle(`🎒 กระเป๋าเดินทางของ ${message.author.username}`)
+                .setTitle(`🎒 กระเป๋าเดินทางของ ${getActorName(message)}`)
                 .setDescription(`💵 **เงินสดติดตัว:** ${db[userId].balance.toLocaleString()} ฟรุ้งฟริ้ง\n🏦 **เงินในธนาคาร:** ${(db[userId].bank || 0).toLocaleString()} ฟรุ้งฟริ้ง`)
                 .addFields(
                     { name: '⚔️ อาวุธในครอบครอง', value: weaponsText, inline: false },

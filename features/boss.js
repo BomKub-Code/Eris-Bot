@@ -1,13 +1,14 @@
 const { EmbedBuilder } = require('discord.js');
 const { saveDB } = require('./db');
 const { getWeaponLevel } = require('./weapons');
+const { getActorName, resolveDisplayName } = require('./nameResolver');
 
 // ==========================================
 // 👹 ระบบสู้บอสโลก (!boss และ !attack)
 // ==========================================
 module.exports = {
     commands: ['!boss', '!บอส', '!attack', '!ตีบอส'],
-    execute(message, args, command, db) {
+    async execute(message, args, command, db) {
         const userId = message.author.id;
 
         if (command === '!boss' || command === '!บอส') {
@@ -23,9 +24,11 @@ module.exports = {
 
             const dmgEntries = Object.entries(boss.damages || {}).sort((a, b) => b[1] - a[1]).slice(0, 5);
             let topDmgText = "";
-            dmgEntries.forEach(([id, dmg], idx) => {
-                topDmgText += `${idx + 1}. <@${id}>: **${dmg.toLocaleString()}** DMG\n`;
-            });
+            for (let idx = 0; idx < dmgEntries.length; idx++) {
+                const [id, dmg] = dmgEntries[idx];
+                const name = await resolveDisplayName(message.guild, id);
+                topDmgText += `${idx + 1}. **${name}**: **${dmg.toLocaleString()}** DMG\n`;
+            }
             if (!topDmgText) topDmgText = "ยังไม่มีใครโจมตีบอสตัวนี้";
 
             const bossEmbed = new EmbedBuilder()
@@ -96,11 +99,11 @@ module.exports = {
             db[userId].lastBossAttack = timeNow;
 
             const bonusNote = weaponBonusStr.length > 0 ? `*(โบนัสอาวุธ: ${weaponBonusStr.join(' | ')})*` : '';
-            let attackResultMsg = `💥 **${message.author.username}** โจมตีใส่ ${boss.name}!\n> ${isCritical ? '💥 **CRITICAL HIT!!** ' : ''}สร้างความเสียหาย **${damage.toLocaleString()} DMG!** ${bonusNote}\n> HP บอสเหลือ: **${boss.hp.toLocaleString()} / ${boss.maxHp.toLocaleString()}**`;
+            let attackResultMsg = `💥 **${getActorName(message)}** โจมตีใส่ ${boss.name}!\n> ${isCritical ? '💥 **CRITICAL HIT!!** ' : ''}สร้างความเสียหาย **${damage.toLocaleString()} DMG!** ${bonusNote}\n> HP บอสเหลือ: **${boss.hp.toLocaleString()} / ${boss.maxHp.toLocaleString()}**`;
 
             // บอสพ่ายแพ้
             if (boss.hp <= 0) {
-                attackResultMsg += `\n\n🎉🎉 **บอสถูกพิชิตแล้ว!!** 🎉🎉\n⚔️ **${message.author.username}** ได้รับโบนัส **Last Hit 1,500 ฟรุ้งฟริ้ง!**`;
+                attackResultMsg += `\n\n🎉🎉 **บอสถูกพิชิตแล้ว!!** 🎉🎉\n⚔️ **${getActorName(message)}** ได้รับโบนัส **Last Hit 1,500 ฟรุ้งฟริ้ง!**`;
 
                 db[userId].balance += 1500;
 
@@ -114,7 +117,8 @@ module.exports = {
                     if (db[attackerId]) {
                         db[attackerId].balance += rewardAmount;
                     }
-                    rewardSummary += `• <@${attackerId}>: ได้รับ **${rewardAmount.toLocaleString()}** ฟรุ้งฟริ้ง (${(sharePercent * 100).toFixed(1)}% DMG)\n`;
+                    const name = await resolveDisplayName(message.guild, attackerId);
+                    rewardSummary += `• **${name}**: ได้รับ **${rewardAmount.toLocaleString()}** ฟรุ้งฟริ้ง (${(sharePercent * 100).toFixed(1)}% DMG)\n`;
                 }
 
                 db['boss'] = {

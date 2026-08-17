@@ -1,6 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const { loadDB, saveDB, ensureUserData, isInJail } = require('./db');
 const { WEAPONS_CONFIG, getWeaponLevel } = require('./weapons');
+const { getActorName } = require('./nameResolver');
 
 // 🏦 ระบบปล้นธนาคารรวม (Heist) - เก็บ session ชั่วคราวใน memory
 const activeHeists = new Map(); // channelId -> { leaderId, members: Set, timeout, createdAt }
@@ -154,9 +155,9 @@ module.exports = {
             // สร้าง heist session
             const heistSession = {
                 leaderId: userId,
-                leaderName: message.author.username,
+                leaderName: getActorName(message),
                 members: new Set([userId]),
-                memberNames: { [userId]: message.author.username },
+                memberNames: { [userId]: getActorName(message) },
                 createdAt: Date.now(),
                 timeout: null
             };
@@ -184,9 +185,9 @@ module.exports = {
             const heistEmbed = new EmbedBuilder()
                 .setColor('#E74C3C')
                 .setTitle('🚨 กำลังรวบรวมทีมปล้นธนาคาร!')
-                .setDescription(`🦹 **${message.author.username}** กำลังวางแผนปล้นธนาคารกลาง!\n\n👥 พิมพ์ \`!join\` เพื่อเข้าร่วมแก๊ง (ต้องการอีก **1-4 คน**)\n⏱️ เหลือเวลา **60 วินาที**\n\n⚠️ **คำเตือน:** ถ้าปล้นพลาดจะโดนจับเข้าคุกทุกคน!\n• 🕒 ติดคุก 2 ชั่วโมง\n• 💸 ยึดเงินสดทั้งหมด 100%\n• 🗡️ 50% โอกาสอาวุธพังหรือลดระดับ`)
+                .setDescription(`🦹 **${getActorName(message)}** กำลังวางแผนปล้นธนาคารกลาง!\n\n👥 พิมพ์ \`!join\` เพื่อเข้าร่วมแก๊ง (ต้องการอีก **1-4 คน**)\n⏱️ เหลือเวลา **60 วินาที**\n\n⚠️ **คำเตือน:** ถ้าปล้นพลาดจะโดนจับเข้าคุกทุกคน!\n• 🕒 ติดคุก 2 ชั่วโมง\n• 💸 ยึดเงินสดทั้งหมด 100%\n• 🗡️ 50% โอกาสอาวุธพังหรือลดระดับ`)
                 .addFields(
-                    { name: '👥 สมาชิกแก๊ง (1/5)', value: `• ${message.author.username} (หัวหน้า)` },
+                    { name: '👥 สมาชิกแก๊ง (1/5)', value: `• ${getActorName(message)} (หัวหน้า)` },
                     { name: '📊 โอกาสสำเร็จปัจจุบัน', value: '**5%** (เพิ่มคนเพิ่มโอกาส! สูงสุด 15%)' }
                 )
                 .setFooter({ text: '⚠️ ธนาคารไม่ใช่ Safe Zone อีกต่อไป! | ปล้นได้ 1-3% จากบัญชีทุกคน' });
@@ -219,7 +220,7 @@ module.exports = {
 
             // เพิ่มสมาชิก
             session.members.add(userId);
-            session.memberNames[userId] = message.author.username;
+            session.memberNames[userId] = getActorName(message);
 
             const memberCount = session.members.size;
             const chances = { 2: '5%', 3: '8%', 4: '12%', 5: '15%' };
@@ -233,7 +234,7 @@ module.exports = {
             const joinEmbed = new EmbedBuilder()
                 .setColor('#F39C12')
                 .setTitle('🦹 สมาชิกใหม่เข้าร่วมแก๊ง!')
-                .setDescription(`**${message.author.username}** เข้าร่วมทีมปล้นธนาคาร!`)
+                .setDescription(`**${getActorName(message)}** เข้าร่วมทีมปล้นธนาคาร!`)
                 .addFields(
                     { name: `👥 สมาชิกแก๊ง (${memberCount}/5)`, value: memberList },
                     { name: '📊 โอกาสสำเร็จปัจจุบัน', value: `**${currentChance}**` }

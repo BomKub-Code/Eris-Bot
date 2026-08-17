@@ -7,9 +7,10 @@ const {
 const { loadDB, ensureUserData } = require('./db');
 const { WEAPONS_CONFIG, getWeaponLevel, hasWeapon } = require('./weapons');
 const { fromInteraction } = require('./uiContext');
+const { isPlayerMember } = require('./playerCheck');
 
 // ยิงคำสั่งเดิม (จาก commandRouter ใน index.js) โดยจำลอง message ด้วย fromInteraction
-function runCommand(interaction, commandRouter, command, args, targetUser) {
+function runCommand(interaction, commandRouter, command, args, targetUser, targetMember) {
     const feature = commandRouter.get(command);
     if (!feature) {
         return interaction.reply({ content: '❌ ไม่พบคำสั่งนี้', flags: MessageFlags.Ephemeral });
@@ -19,7 +20,7 @@ function runCommand(interaction, commandRouter, command, args, targetUser) {
     ensureUserData(db, interaction.user.id);
     if (targetUser) ensureUserData(db, targetUser.id);
 
-    const ctx = fromInteraction(interaction, targetUser);
+    const ctx = fromInteraction(interaction, targetUser, targetMember);
     return feature.execute(ctx, args, command, db);
 }
 
@@ -145,15 +146,21 @@ async function handleUserSelect(interaction, commandRouter) {
     if (ns !== 'usersel') return;
 
     const target = interaction.users.first();
+    const targetMember = interaction.members.first();
     if (!target) return interaction.update({ content: '❌ ไม่พบผู้ใช้ที่เลือก', components: [] });
 
+    if (!isPlayerMember(targetMember)) {
+        const label = action === 'pay' ? 'โอนเงิน' : 'ปล้น';
+        return interaction.update({ content: `❌ ${label}ได้เฉพาะผู้เล่นที่มี Role ในเซิร์ฟเวอร์เท่านั้น!`, components: [] });
+    }
+
     if (action === 'rob') {
-        await interaction.update({ content: `🥷 กำลังปล้น **${target.username}**...`, components: [] });
-        return runCommand(interaction, commandRouter, '!rob', [], target);
+        await interaction.update({ content: `🥷 กำลังปล้น **${targetMember.displayName}**...`, components: [] });
+        return runCommand(interaction, commandRouter, '!rob', [], target, targetMember);
     }
 
     if (action === 'pay') {
-        const modal = new ModalBuilder().setCustomId(`modal|pay|${target.id}`).setTitle(`โอนเงินให้ ${target.username}`.slice(0, 45));
+        const modal = new ModalBuilder().setCustomId(`modal|pay|${target.id}`).setTitle(`โอนเงินให้ ${targetMember.displayName}`.slice(0, 45));
         const input = new TextInputBuilder()
             .setCustomId('amount')
             .setLabel('จำนวนเงินที่จะโอน')
@@ -189,7 +196,13 @@ async function handleModal(interaction, commandRouter) {
     if (action === 'pay') {
         const target = await interaction.client.users.fetch(payload).catch(() => null);
         if (!target) return interaction.reply({ content: '❌ ไม่พบผู้ใช้เป้าหมาย', flags: MessageFlags.Ephemeral });
-        return runCommand(interaction, commandRouter, '!pay', ['@target', amount], target);
+
+        const targetMember = await interaction.guild.members.fetch(payload).catch(() => null);
+        if (!isPlayerMember(targetMember)) {
+            return interaction.reply({ content: '❌ โอนเงินได้เฉพาะผู้เล่นที่มี Role ในเซิร์ฟเวอร์เท่านั้น!', flags: MessageFlags.Ephemeral });
+        }
+
+        return runCommand(interaction, commandRouter, '!pay', ['@target', amount], target, targetMember);
     }
 }
 

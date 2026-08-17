@@ -1,4 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
+const { getActorName } = require('./nameResolver');
 
 // ==========================================
 // 📊 ระบบสุ่มสเตตัส (!status หรือ !สเตตัส)
@@ -36,7 +37,7 @@ module.exports = {
 
         const statusEmbed = new EmbedBuilder()
             .setColor('#FFD700')
-            .setTitle(`📊 ใบประเมินสเตตัสของ ${message.author.username}`)
+            .setTitle(`📊 ใบประเมินสเตตัสของ ${getActorName(message)}`)
             .setDescription(`หลังจากโดนรถบรรทุกชน นี่คือพลังแฝงของคุณ!\n\n**บทสรุป:** ${note}`)
             .addFields(
                 { name: '💪 พละกำลัง (STR)', value: `**${str}**/100`, inline: true },
