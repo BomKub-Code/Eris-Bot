@@ -1,6 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const { saveDB, isInJail } = require('./db');
 const { getWeaponLevel } = require('./weapons');
+const { getActorName } = require('./nameResolver');
 
 const winScenarios = [
     "ไปตีสไลม์หน้าเมืองแล้วบังเอิญเจอก้อนทองคำแท่งดรอป", "ช่วยแมวของหัวหน้าหมู่บ้านลงจากต้นไม้ ได้รับรางวัลอย่างงาม",
@@ -110,7 +111,7 @@ module.exports = {
 
         const huntEmbed = new EmbedBuilder()
             .setColor(isWin ? '#00FF00' : '#FF0000')
-            .setAuthor({ name: `${message.author.username} ออกผจญภัย...`, iconURL: message.author.displayAvatarURL() })
+            .setAuthor({ name: `${getActorName(message)} ออกผจญภัย...`, iconURL: message.author.displayAvatarURL() })
             .setDescription(resultMessage);
 
         return message.reply({ embeds: [huntEmbed] });

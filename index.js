@@ -2,6 +2,7 @@ require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const { loadDB, ensureUserData } = require('./features/db');
 const { handleInteraction } = require('./features/interactionRouter');
+const { ensureAllMenus, ensureChannelMenu, scheduleBump } = require('./features/autoMenu');
 
 const TOKEN = process.env.TOKEN;
 
@@ -36,11 +37,27 @@ for (const feature of features) {
     }
 }
 
+<<<<<<< HEAD
 client.once('ready', () => {
+=======
+client.once('clientReady', async () => {
+>>>>>>> dbba986471c94a7f7de85739758e881729f75714
     console.log(`บอท ${client.user.tag} พร้อมเปิดบ่อน แจกฟรุ้งฟริ้ง และเปิดศึกตีบอสแล้ว! 🎲✨⚔️`);
+
+    // โพสต์เมนูปุ่มอัตโนมัติในทุกห้องที่รองรับ ผู้เล่นไม่ต้องพิมพ์ !menu เอง
+    await ensureAllMenus(client);
+    console.log('📌 เตรียมเมนูปุ่มในห้องที่รองรับเรียบร้อยแล้ว');
+});
+
+// ถ้ามีห้องใหม่ถูกสร้างขึ้นทีหลังแล้วชื่อตรงกับธีมที่รองรับ ก็ปักหมุดเมนูให้อัตโนมัติเช่นกัน
+client.on('channelCreate', (channel) => {
+    ensureChannelMenu(channel).catch(err => console.error('❌ ensureChannelMenu error:', err));
 });
 
 client.on('messageCreate', (message) => {
+    // ทุกข้อความใหม่ในห้องที่มีเมนูปุ่ม จะทำให้เมนูเด้งไปอยู่ล่างสุดเสมอ (หน่วงเวลารวมข้อความรัวๆ)
+    scheduleBump(message.channel);
+
     if (message.author.bot) return;
     if (!message.content.startsWith('!')) return;
 

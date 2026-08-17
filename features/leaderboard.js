@@ -1,11 +1,12 @@
 const { EmbedBuilder } = require('discord.js');
+const { resolveDisplayName } = require('./nameResolver');
 
 // ==========================================
 // 🏆 ระบบตารางอันดับเศรษฐี (!rich หรือ !leaderboard)
 // ==========================================
 module.exports = {
     commands: ['!rich', '!leaderboard', '!อันดับ'],
-    execute(message, args, command, db) {
+    async execute(message, args, command, db) {
         if (!message.channel.name.includes('ธนาคาร')) {
             return message.reply('❌ กรุณาไปทำธุรกรรมการเงินและดูอันดับที่ห้อง **🏦-ธนาคาร-และ-จัดอันดับ** ครับ').then(msg => setTimeout(() => msg.delete().catch(() => { }), 5000));
         }
@@ -26,7 +27,8 @@ module.exports = {
             const id = top10[i];
             const medal = medals[i] || `**${i + 1}.**`;
             const netWorth = (db[id].balance || 0) + (db[id].bank || 0);
-            leaderboardText += `${medal} <@${id}> - **${netWorth.toLocaleString()}** ฟรุ้งฟริ้ง\n`;
+            const name = await resolveDisplayName(message.guild, id);
+            leaderboardText += `${medal} **${name}** - **${netWorth.toLocaleString()}** ฟรุ้งฟริ้ง\n`;
         }
 
         if (!leaderboardText) leaderboardText = "ยังไม่มีผู้เล่นในระบบ...";

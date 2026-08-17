@@ -1,6 +1,8 @@
 const { saveDB, ensureUserData, isInJail } = require('./db');
 const { EmbedBuilder } = require('discord.js');
 const { getWeaponLevel } = require('./weapons');
+const { isPlayerMember } = require('./playerCheck');
+const { getActorName, getTargetName } = require('./nameResolver');
 
 // ==========================================
 // 🤝 สังคมและการโอนเงิน (!pay และ !rob)
@@ -19,6 +21,7 @@ module.exports = {
 
             if (!target) return message.reply('❌ คุณต้องแท็กเพื่อนที่ต้องการโอนเงินให้ด้วย (เช่น `!pay @ชื่อเพื่อน 100`)');
             if (target.id === userId) return message.reply('❌ โอนเงินให้ตัวเองไม่ได้เว้ย!');
+            if (!isPlayerMember(message.mentions.members?.first())) return message.reply('❌ โอนเงินได้เฉพาะผู้เล่นที่มี Role ในเซิร์ฟเวอร์เท่านั้น!');
             if (!amount || amount <= 0 || isNaN(amount)) return message.reply('❌ ใส่จำนวนเงินที่ถูกต้องด้วย');
             if (db[userId].balance < amount) return message.reply('💸 ฟรุ้งฟริ้งไม่พอ! ไปทำงานหาเงินก่อนไป');
 
@@ -28,7 +31,7 @@ module.exports = {
             db[target.id].balance += amount;
             saveDB(db);
 
-            return message.reply(`💸 **${message.author.username}** ได้โอนเงิน **${amount} ฟรุ้งฟริ้ง** ให้กับ **${target.username}** เรียบร้อยแล้ว!`);
+            return message.reply(`💸 **${getActorName(message)}** ได้โอนเงิน **${amount} ฟรุ้งฟริ้ง** ให้กับ **${getTargetName(message, target)}** เรียบร้อยแล้ว!`);
         }
 
         if (command === '!rob') {
@@ -41,6 +44,7 @@ module.exports = {
             const target = message.mentions.users.first();
             if (!target) return message.reply('❌ จะปล้นใคร แท็กชื่อด้วย! (เช่น `!rob @ชื่อเพื่อน`)');
             if (target.id === userId) return message.reply('❌ บ้าไปแล้ว ปล้นตัวเองทำไม!');
+            if (!isPlayerMember(message.mentions.members?.first())) return message.reply('❌ ปล้นได้เฉพาะผู้เล่นที่มี Role ในเซิร์ฟเวอร์เท่านั้น!');
 
             ensureUserData(db, target.id);
             if (db[target.id].balance < 100) return message.reply('❌ เป้าหมายจนเกินไป ปล้นไปก็ไม่ได้อะไร ปล่อยเขาไปเถอะ...');
@@ -74,7 +78,7 @@ module.exports = {
                 const amuletEmbed = new EmbedBuilder()
                     .setColor('#F1C40F')
                     .setTitle('🛡️ ยันต์ป้องกันภัยทำงาน!')
-                    .setDescription(`⚡ **${message.author.username}** พยายามจะเข้าไปปล้น **${target.username}** แต่เจอยันต์ศักดิ์สิทธิ์เปล่งแสงทำลายโอกาสปล้น!\n\n> ${amuletStatus}\n> 💥 **${message.author.username}** โดนพลังยันต์สะท้อนกลับ เสียเงิน **${actualPenalty.toLocaleString()} ฟรุ้งฟริ้ง!** (โอนเป็นค่าทำขวัญให้เหยื่อ)`);
+                    .setDescription(`⚡ **${getActorName(message)}** พยายามจะเข้าไปปล้น **${getTargetName(message, target)}** แต่เจอยันต์ศักดิ์สิทธิ์เปล่งแสงทำลายโอกาสปล้น!\n\n> ${amuletStatus}\n> 💥 **${getActorName(message)}** โดนพลังยันต์สะท้อนกลับ เสียเงิน **${actualPenalty.toLocaleString()} ฟรุ้งฟริ้ง!** (โอนเป็นค่าทำขวัญให้เหยื่อ)`);
 
                 return message.reply({ embeds: [amuletEmbed] });
             }
@@ -93,7 +97,7 @@ module.exports = {
                     const shieldEmbed = new EmbedBuilder()
                         .setColor('#3498DB')
                         .setTitle('🛡️ โล่ศักดิ์สิทธิ์สะท้อนการถูกปล้น!')
-                        .setDescription(`⚡ **${message.author.username}** พยายามจะปล้น **${target.username}** แต่ถูก **🛡️ โล่ศักดิ์สิทธิ์ +${targetShieldLvl}** ยกขึ้นมาบล็อกและสะท้อนกลับ!\n\n> 💥 **${message.author.username}** เสียเงิน **${actualPenalty.toLocaleString()} ฟรุ้งฟริ้ง** (โอนชดเชยให้เป้าหมาย)`);
+                        .setDescription(`⚡ **${getActorName(message)}** พยายามจะปล้น **${getTargetName(message, target)}** แต่ถูก **🛡️ โล่ศักดิ์สิทธิ์ +${targetShieldLvl}** ยกขึ้นมาบล็อกและสะท้อนกลับ!\n\n> 💥 **${getActorName(message)}** เสียเงิน **${actualPenalty.toLocaleString()} ฟรุ้งฟริ้ง** (โอนชดเชยให้เป้าหมาย)`);
 
                     return message.reply({ embeds: [shieldEmbed] });
                 }
@@ -115,7 +119,7 @@ module.exports = {
                 saveDB(db);
 
                 const daggerNote = attackerDaggerLvl >= 0 ? ` *(มีดสั้น +${attackerDaggerLvl} ช่วยเพิ่มโอกาสสำเร็จ & เงินที่ได้)*` : '';
-                return message.reply(`🥷 **สำเร็จ!** คุณแอบขโมยถุงเงินของ ${target.username} มาได้ **${stolenAmount.toLocaleString()} ฟรุ้งฟริ้ง!** (${percentWin}% ของเป้าหมาย)${daggerNote} 🏃‍♂️💨`);
+                return message.reply(`🥷 **สำเร็จ!** คุณแอบขโมยถุงเงินของ ${getTargetName(message, target)} มาได้ **${stolenAmount.toLocaleString()} ฟรุ้งฟริ้ง!** (${percentWin}% ของเป้าหมาย)${daggerNote} 🏃‍♂️💨`);
             } else {
                 const percentLose = Math.floor(Math.random() * (50 - 10 + 1)) + 10;
                 const lostAmount = Math.floor((db[userId].balance * percentLose) / 100);

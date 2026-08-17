@@ -1,5 +1,6 @@
 const { EmbedBuilder } = require('discord.js');
 const { saveDB, isInJail } = require('./db');
+const { getActorName } = require('./nameResolver');
 
 // ==========================================
 // 🪙 เช็คเงิน และ เงินเดือน (!bal, !money, !daily)
@@ -28,7 +29,7 @@ module.exports = {
 
             const balEmbed = new EmbedBuilder()
                 .setColor('#00FF00')
-                .setTitle(`💳 บัญชีทรัพย์สินของ ${message.author.username}`)
+                .setTitle(`💳 บัญชีทรัพย์สินของ ${getActorName(message)}`)
                 .setDescription(`💵 **เงินสดติดตัว:** ${cash.toLocaleString()} ฟรุ้งฟริ้ง\n🏦 **เงินในธนาคาร:** ${bank.toLocaleString()} ฟรุ้งฟริ้ง\n✨ **ทรัพย์สินรวม:** ${total.toLocaleString()} ฟรุ้งฟริ้ง`)
                 .setFooter({ text: 'ใช้คำสั่ง !ฝาก หรือ !ถอน เพื่อจัดการเงินในธนาคาร' });
             return message.reply({ embeds: [balEmbed] });
@@ -117,7 +118,7 @@ module.exports = {
             }
             const bankEmbed = new EmbedBuilder()
                 .setColor('#34495E')
-                .setTitle(`🏦 ธนาคารสมาคมนักผจญภัย - บัญชีของ ${message.author.username}`)
+                .setTitle(`🏦 ธนาคารสมาคมนักผจญภัย - บัญชีของ ${getActorName(message)}`)
                 .setDescription(`🏦 **เงินฝากในธนาคาร:** ${(db[userId].bank || 0).toLocaleString()} ฟรุ้งฟริ้ง\n💵 **เงินสดติดตัว:** ${db[userId].balance.toLocaleString()} ฟรุ้งฟริ้ง\n\n🛡️ *เงินในธนาคารปลอดภัยจากการปล้นรายบุคคล (!rob)*\n⚠️ *แต่ระวัง! แก๊งโจรอาจรวมตี้ปล้นธนาคารได้ (!heist)*`)
                 .setFooter({ text: 'พิมพ์ !ฝาก <จำนวน> เพื่อฝากเงิน | !ถอน <จำนวน> เพื่อถอนเงิน' });
             return message.reply({ embeds: [bankEmbed] });
@@ -146,7 +147,7 @@ module.exports = {
             const bailEmbed = new EmbedBuilder()
                 .setColor('#2ECC71')
                 .setTitle('⚖️ ประกันตัวสำเร็จ!')
-                .setDescription(`**${message.author.username}** จ่ายค่าประกันตัว **${bailCost.toLocaleString()} ฟรุ้งฟริ้ง** แล้ว!\n\n> 🏦 เงินในธนาคารคงเหลือ: **${db[userId].bank.toLocaleString()} ฟรุ้งฟริ้ง**\n> ✅ คุณเป็นอิสระแล้ว! กลับไปหาเงินได้เลย`)
+                .setDescription(`**${getActorName(message)}** จ่ายค่าประกันตัว **${bailCost.toLocaleString()} ฟรุ้งฟริ้ง** แล้ว!\n\n> 🏦 เงินในธนาคารคงเหลือ: **${db[userId].bank.toLocaleString()} ฟรุ้งฟริ้ง**\n> ✅ คุณเป็นอิสระแล้ว! กลับไปหาเงินได้เลย`)
                 .setFooter({ text: '💡 ครั้งหน้าคิดให้ดีก่อนไปปล้นนะ!' });
 
             return message.reply({ embeds: [bailEmbed] });

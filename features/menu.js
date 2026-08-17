@@ -63,25 +63,38 @@ function buildRows(buttons) {
     return rows;
 }
 
+function findMenuKey(channelName) {
+    if (!channelName) return undefined;
+    return Object.keys(CHANNEL_MENUS).find(key => channelName.includes(key));
+}
+
+// คืน payload ({embeds, components}) พร้อมส่ง/แก้ไขข้อความได้ทันที ใช้ทั้งจาก !menu และระบบปักหมุดอัตโนมัติ
+function buildMenuPayload(menuKey) {
+    const menu = CHANNEL_MENUS[menuKey];
+    if (!menu) return null;
+
+    const embed = new EmbedBuilder()
+        .setColor('#5865F2')
+        .setTitle(menu.title)
+        .setDescription('กดปุ่มด้านล่างเพื่อใช้คำสั่งได้เลย ไม่ต้องพิมพ์! (ปุ่มนี้ใช้ร่วมกันได้ทุกคนในห้อง)');
+
+    return { embeds: [embed], components: buildRows(menu.buttons) };
+}
+
 // ==========================================
 // 🕹️ เมนูปุ่มกดของแต่ละห้อง (!menu หรือ !เมนู)
 // ==========================================
 module.exports = {
     commands: ['!menu', '!เมนู'],
+    findMenuKey,
+    buildMenuPayload,
     execute(message) {
-        const channelName = message.channel.name;
-        const menuKey = Object.keys(CHANNEL_MENUS).find(key => channelName.includes(key));
+        const menuKey = findMenuKey(message.channel.name);
 
         if (!menuKey) {
             return message.reply('❌ ห้องนี้ยังไม่มีเมนูปุ่มให้ใช้งาน ลองไปที่ห้อง 🌲 ป่ามอนสเตอร์ / 🏦 ธนาคาร / 🛒 ตลาดมืด / 🐉 บอสโลก ครับ');
         }
 
-        const menu = CHANNEL_MENUS[menuKey];
-        const embed = new EmbedBuilder()
-            .setColor('#5865F2')
-            .setTitle(menu.title)
-            .setDescription('กดปุ่มด้านล่างเพื่อใช้คำสั่งได้เลย ไม่ต้องพิมพ์! (ปุ่มนี้ใช้ร่วมกันได้ทุกคนในห้อง)');
-
-        return message.reply({ embeds: [embed], components: buildRows(menu.buttons) });
+        return message.reply(buildMenuPayload(menuKey));
     }
 };
