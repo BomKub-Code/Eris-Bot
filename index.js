@@ -37,11 +37,7 @@ for (const feature of features) {
     }
 }
 
-<<<<<<< HEAD
-client.once('ready', () => {
-=======
-client.once('clientReady', async () => {
->>>>>>> dbba986471c94a7f7de85739758e881729f75714
+client.once('ready', async () => {
     console.log(`บอท ${client.user.tag} พร้อมเปิดบ่อน แจกฟรุ้งฟริ้ง และเปิดศึกตีบอสแล้ว! 🎲✨⚔️`);
 
     // โพสต์เมนูปุ่มอัตโนมัติในทุกห้องที่รองรับ ผู้เล่นไม่ต้องพิมพ์ !menu เอง
