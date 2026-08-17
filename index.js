@@ -1,6 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const { loadDB, ensureUserData } = require('./features/db');
+const { handleInteraction } = require('./features/interactionRouter');
 
 const TOKEN = process.env.TOKEN;
 
@@ -14,6 +15,7 @@ const client = new Client({
 
 // แต่ละไฟล์ใน features/ คือฟีเจอร์ของบอท ที่ export { commands: [...], execute(message, args, command, db) }
 const features = [
+    require('./features/menu'),
     require('./features/status'),
     require('./features/bank'),
     require('./features/upgrade'),
@@ -53,6 +55,9 @@ client.on('messageCreate', (message) => {
 
     feature.execute(message, args, command, db);
 });
+
+// ปุ่ม/select menu/modal จากเมนู !menu ทั้งหมดวิ่งผ่านตัวนี้ ยิงกลับเข้า commandRouter เดิม
+client.on('interactionCreate', (interaction) => handleInteraction(interaction, commandRouter));
 
 if (!TOKEN) {
     console.error("❌ ERROR: ไม่พบ TOKEN ใน environment variables (process.env.TOKEN)");
